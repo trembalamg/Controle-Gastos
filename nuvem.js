@@ -27,7 +27,7 @@
   const C = raiz.crypto && raiz.crypto.subtle ? raiz.crypto : null;
   const enc = new TextEncoder(), dec = new TextDecoder();
   const PASTA = 'dados';
-  const ITER_SENHA = 600000, ITER_PIN = 300000, MAX_ERROS_PIN = 5, MIN_SENHA = 8;
+  const ITER_SENHA = 600000, MIN_SENHA = 8;
   const RE_DADOS = /^(config|apagados|tx-\d{4})\.enc$/;
 
   /* ------------------------------------------------------------------ utilidades */
@@ -95,6 +95,7 @@
 
   /* ------------------------------------------------------------------ GitHub (API Contents) */
   function GH(o) {
+    const P = o.pasta || PASTA;   // pasta dos dados: 'dados' (dono) ou 'usuarios/<id>' (outras contas)
     const base = `https://api.github.com/repos/${encodeURIComponent(o.dono)}/${encodeURIComponent(o.repo)}`;
     const f = Nuvem._fetch || ((...a) => raiz.fetch(...a));
     async function req(caminho, op = {}) {
@@ -108,7 +109,7 @@
     }
     const falha = async r => { let m = ''; try { m = (await r.json()).message || ''; } catch (_) {} return erro('http', `GitHub respondeu ${r.status}${m ? ': ' + m : ''}`); };
     return {
-      dono: o.dono, repo: o.repo, token: o.token,
+      dono: o.dono, repo: o.repo, token: o.token, pasta: P,
       async info() {
         const r = await req('');
         if (r.status === 404) throw erro('repo', 'Repositório não encontrado (confira o nome, ou a chave não tem acesso a ele).');
@@ -116,20 +117,20 @@
         return r.json();
       },
       async listar() {
-        const r = await req('/contents/' + PASTA);
+        const r = await req('/contents/' + P);
         if (r.status === 404) return [];
         if (!r.ok) throw await falha(r);
         const l = await r.json();
         return Array.isArray(l) ? l.filter(x => x.type === 'file').map(x => ({ nome: x.name, sha: x.sha })) : [];
       },
       async ler(nome) {
-        const r = await req(`/contents/${PASTA}/${nome}`, { raw: true });
+        const r = await req(`/contents/${P}/${nome}`, { raw: true });
         if (r.status === 404) return null;
         if (!r.ok) throw await falha(r);
         return r.text();
       },
       async gravar(nome, texto, sha) {
-        const r = await req(`/contents/${PASTA}/${nome}`, { method: 'PUT', body: { message: `app: ${nome}`, content: b64(enc.encode(texto)), ...(sha ? { sha } : {}) } });
+        const r = await req(`/contents/${P}/${nome}`, { method: 'PUT', body: { message: `app: ${nome}`, content: b64(enc.encode(texto)), ...(sha ? { sha } : {}) } });
         if (r.status === 409 || r.status === 422) throw erro('conflito', 'O arquivo mudou no GitHub enquanto era gravado.');
         if (!r.ok) throw await falha(r);
         return (await r.json()).content.sha;
@@ -167,37 +168,6 @@
     async set(k, v) { if (raiz.indexedDB) await this._op('readwrite', st => st.put(v, k)); else this.mem.set(k, v); },
     async del(k) { if (raiz.indexedDB) await this._op('readwrite', st => st.delete(k)); else this.mem.delete(k); },
   };
-
-  // caixa do aparelho: {token, dek} trancados pela chave do navegador (não exportável) e depois pelo PIN
-  async function guardarAparelho(dados, pin) {
-    let kdev = await kv.get('kdev');
-    if (!kdev) { kdev = await C.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']); await kv.set('kdev', kdev); }
-    const dentro = await cifrar(kdev, enc.encode(JSON.stringify({ token: dados.token, dek: b64(dados.dekRaw) })));
-    const salt = rand(16), kpin = await pbkdf2(pin, salt, ITER_PIN);
-    const caixa = await cifrar(kpin, enc.encode(JSON.stringify(dentro)));
-    await kv.set('aparelho', { v: 1, dono: dados.dono, repo: dados.repo, pin: { salt: b64(salt), iter: ITER_PIN, n: pin.length }, caixa, em: Date.now() });
-    await kv.set('erros', 0);
-    // pede ao navegador para não apagar estes dados quando faltar espaço (assim só o PIN é pedido nas próximas vezes)
-    try { if (raiz.navigator && raiz.navigator.storage && raiz.navigator.storage.persist) await raiz.navigator.storage.persist(); } catch (_) {}
-  }
-  async function abrirAparelho(ap, pin) {
-    const kpin = await pbkdf2(pin, unb64(ap.pin.salt), ap.pin.iter);
-    let dentro;
-    try { dentro = JSON.parse(dec.decode(await decifrar(kpin, ap.caixa))); }
-    catch (_) {
-      const n = ((await kv.get('erros')) || 0) + 1;
-      if (n >= MAX_ERROS_PIN) { await esquecerAparelho(); throw erro('pin_apagado', 'PIN errado 5 vezes: por segurança este aparelho foi desconectado. Entre com a senha do cofre.'); }
-      await kv.set('erros', n);
-      const r = MAX_ERROS_PIN - n;
-      throw erro('pin', `PIN incorreto (${r} tentativa${r > 1 ? 's' : ''} antes de pedir a senha)`);
-    }
-    const kdev = await kv.get('kdev');
-    if (!kdev) throw erro('pin_apagado', 'A chave deste navegador sumiu: entre com a senha do cofre.');
-    const p = JSON.parse(dec.decode(await decifrar(kdev, dentro)));
-    await kv.set('erros', 0);
-    return { dono: ap.dono, repo: ap.repo, token: p.token, dekRaw: unb64(p.dek) };
-  }
-  async function esquecerAparelho() { for (const k of ['aparelho', 'cache', 'erros']) await kv.del(k); }
 
   /* ------------------------------------------------------------------ estado em memória + sincronização */
   const S = {
@@ -246,17 +216,19 @@
     return { config: S.cfg.config ? clone(S.cfg.config) : null, tx: Object.values(S.recs).map(p => clone(p[1])) };
   }
 
+  // cópia local (criptografada com a chave da conta), uma por conta: várias pessoas podem usar o mesmo aparelho
+  const chaveCache = () => `cache:${S.dono}/${S.repo}/${S.pasta}`;
   async function salvarCache() {
     if (!S.dek || S.semCache) return;
-    const txt = await selar(S.dek, { dono: S.dono, repo: S.repo, cfg: S.cfg, recs: S.recs, del: S.del, shas: S.shas, up: S.up });
-    await kv.set('cache', txt);
+    const txt = await selar(S.dek, { dono: S.dono, repo: S.repo, pasta: S.pasta, cfg: S.cfg, recs: S.recs, del: S.del, shas: S.shas, up: S.up });
+    await kv.set(chaveCache(), txt);
   }
   function agendarCache() { clearTimeout(S.cacheTimer); S.cacheTimer = setTimeout(() => salvarCache().catch(e => console.error('nuvem: cache', e)), 150); }
   async function lerCache() {
-    const txt = await kv.get('cache'); if (!txt) return false;
+    const txt = await kv.get(chaveCache()); if (!txt) return false;
     try {
       const c = await abrirSelado(S.dek, txt);
-      if (c.dono !== S.dono || c.repo !== S.repo) return false;
+      if (c.dono !== S.dono || c.repo !== S.repo || c.pasta !== S.pasta) return false;
       Object.assign(S, { cfg: c.cfg, recs: c.recs, del: c.del, shas: c.shas, up: c.up });
       return true;
     } catch (e) { console.error('nuvem: cache ilegível', e); return false; }
@@ -361,14 +333,11 @@
     return { gh, dekRaw: await abrirCofre(cofre, kek), kek, novo: false };
   }
   async function usar(c) {
-    Object.assign(S, { gh: c.gh, dono: c.gh.dono, repo: c.gh.repo, dekRaw: c.dekRaw, dek: await importarDek(c.dekRaw),
+    Object.assign(S, { gh: c.gh, dono: c.gh.dono, repo: c.gh.repo, pasta: c.gh.pasta, dekRaw: c.dekRaw, dek: await importarDek(c.dekRaw),
       cfg: { mod: 0, config: null }, recs: {}, del: {}, shas: {}, up: {}, galeria: null });
   }
 
-  /* ------------------------------------------------------------------ telas (PIN, senha, criar PIN) */
-  const TECLADO = `<div class="travaTeclado">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(k => `<button type="button" data-k="${k}">${k}</button>`).join('')}
-    <button type="button" data-k="ok" class="tecOk" aria-label="Confirmar">OK</button><button type="button" data-k="0">0</button>
-    <button type="button" data-k="del" class="tecDel" aria-label="Apagar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 5H9l-6 7 6 7h12z"/><path d="M17 9l-5 5M12 9l5 5"/></svg></button></div>`;
+  /* ------------------------------------------------------------------ telas (login; enviar/trazer no computador) */
   let _tela = null;
   function tela(html) {
     if (!_tela) { _tela = raiz.document.createElement('div'); _tela.className = 'trava nvTela'; _tela.setAttribute('role', 'dialog'); raiz.document.body.appendChild(_tela); }
@@ -379,37 +348,6 @@
   function fecharTela() { if (_tela) { _tela.remove(); _tela = null; } }
   const q = sel => _tela.querySelector(sel);
   const msgErro = (m, tremer) => { const e = q('.travaErro'); if (e) e.textContent = m || ''; if (m && tremer) { const p = q('.travaPontos'); if (p) { p.classList.remove('erro'); void p.offsetWidth; p.classList.add('erro'); } } };
-
-  // teclado numérico: resolve com o PIN digitado (n = tamanho fixo, confere sozinho no último dígito)
-  function teclado({ titulo, sub, n, rodape }) {
-    return new Promise(res => {
-      tela(`<h2>${escH(titulo)}</h2><p class="travaSub">${escH(sub || '')}</p><div class="travaPontos" aria-hidden="true"></div>
-        <div class="travaErro" role="alert"></div>${TECLADO}<div class="travaRodape">${rodape || ''}</div>`);
-      let buf = '';
-      const pontos = () => { const tot = n || Math.max(4, buf.length); q('.travaPontos').innerHTML = Array.from({ length: tot }, (_, i) => `<i class="${i < buf.length ? 'on' : ''}"></i>`).join(''); };
-      q('.tecOk').hidden = !!n;
-      const fim = () => { raiz.document.removeEventListener('keydown', tecla, true); };
-      const enviar = () => { if (buf.length < 4) return msgErro('Use de 4 a 8 números', true); const p = buf; buf = ''; pontos(); fim(); res({ pin: p, tela: { recomecar: () => teclado({ titulo, sub, n, rodape }) } }); };
-      const dig = k => { msgErro(''); if (k === 'del') buf = buf.slice(0, -1); else if (k === 'ok') return enviar(); else if (buf.length < 8) buf += k; pontos(); if (n && buf.length === n) enviar(); };
-      function tecla(e) { if (/^\d$/.test(e.key)) { e.preventDefault(); dig(e.key); } else if (e.key === 'Backspace') { e.preventDefault(); dig('del'); } else if (e.key === 'Enter') { e.preventDefault(); dig('ok'); } }
-      raiz.document.addEventListener('keydown', tecla, true);
-      q('.travaTeclado').onclick = e => { const b = e.target.closest('button[data-k]'); if (b) dig(b.dataset.k); };
-      _tela.querySelectorAll('[data-acao]').forEach(b => b.onclick = () => { fim(); res({ acao: b.dataset.acao }); });
-      pontos();
-    });
-  }
-
-  async function telaPin(ap) {
-    let aviso = '';
-    for (;;) {
-      const r = await teclado({ titulo: 'Digite seu PIN', sub: aviso || `Cofre ${ap.dono}/${ap.repo}`, n: ap.pin.n,
-        rodape: '<button type="button" class="linkish" data-acao="senha">Esqueci o PIN · entrar com a senha</button>' });
-      if (r.acao === 'senha') return null;
-      tela('<h2>Abrindo…</h2><p class="travaSub">Destrancando os dados neste aparelho</p><div class="travaErro" role="alert"></div>');
-      try { return await abrirAparelho(ap, r.pin); }
-      catch (e) { if (e.code === 'pin_apagado') { aviso = ''; await kv.del('aparelho'); return { apagado: e.msg }; } aviso = e.msg; }
-    }
-  }
 
   // último cofre usado neste aparelho; sem ele, no GitHub Pages o dono vem do endereço (usuario.github.io)
   function lerUltimo() {
@@ -471,75 +409,84 @@
     });
   }
 
-  async function telaCriarPin(sub) {
-    let aviso = '';
-    for (;;) {
-      const a = await teclado({ titulo: 'Crie um PIN', sub: aviso || sub || 'De 4 a 8 números. Nas próximas vezes, neste aparelho, você só digita o PIN.' });
-      const b = await teclado({ titulo: 'Confirme o PIN', sub: 'Digite o mesmo PIN de novo' });
-      if (a.pin === b.pin) return a.pin;
-      aviso = 'Os dois PINs não são iguais. Comece de novo.';
-    }
+  /* ------------------------------------------------------------------ contas (usuário + senha) */
+  // Cada conta é um arquivo publicado com o app: contas/<id>.json, id = sha256("cg-conta:" + usuário) (não revela o nome).
+  // Dentro, trancado pela senha da conta (PBKDF2 600 mil + AES-GCM): {nome, dono, repo, pasta, token, dek}.
+  // Entrar = baixar o arquivo da conta, destrancar com a senha e abrir os dados da pasta dela. Nada de GitHub na tela.
+  // Contas são criadas no computador (ferramentas/conta_nuvem.js) e publicadas junto com o código.
+  const ITER_CONTA = 600000;
+  const idConta = async usuario => (await hashTexto('cg-conta:' + String(usuario).trim().toLowerCase())).slice(0, 32);
+  async function criarConta(dados, senha) {
+    const salt = rand(16), k = await pbkdf2(senha, salt, ITER_CONTA);
+    return { v: 1, salt: b64(salt), iter: ITER_CONTA, caixa: await cifrar(k, enc.encode(JSON.stringify(dados))) };
   }
-
-  // link/QR "conectar este aparelho": #conectar=<dados>
-  function lerConvite() {
-    const m = /^#conectar=([\w-]{20,})$/.exec(raiz.location.hash || '');
-    if (!m) return null;
-    try { raiz.history.replaceState(null, '', raiz.location.pathname + raiz.location.search); } catch (_) {}
-    try { const c = JSON.parse(unb64url(m[1])); return c && c.d && c.r && c.s && c.c ? c : null; } catch (_) { return null; }
+  async function abrirConta(conta, senha) {
+    const k = await pbkdf2(senha, unb64(conta.salt), conta.iter || ITER_CONTA);
+    try { return JSON.parse(dec.decode(await decifrar(k, conta.caixa))); }
+    catch (_) { throw erro('login', 'Usuário ou senha incorretos.'); }
   }
-  // convite: {d: dono, r: repo, s/i: sal e voltas do cofre, c: chave do GitHub cifrada pela senha do cofre}
-  async function convite(senha) {
-    const txt = await S.gh.ler('cofre.json'); const cofre = JSON.parse(txt);
-    const kek = await kekDoCofre(cofre, senha);
-    await abrirCofre(cofre, kek);   // confere a senha
-    return { d: S.dono, r: S.repo, s: cofre.kdf.salt, i: cofre.kdf.iter, c: await cifrar(kek, enc.encode(S.gh.token)) };
-  }
-  async function criarConvite(senha) {
-    return raiz.location.origin + raiz.location.pathname + '#conectar=' + b64url(JSON.stringify(await convite(senha)));
-  }
-  // arquivo de acesso publicado junto com o app (acesso.json): o mesmo convite, para entrar em aparelho novo só com a senha
-  async function lerAcessoPublico() {
+  async function lerConta(usuario) {
     try {
-      const r = await raiz.fetch('acesso.json', { cache: 'no-store' });
+      const r = await raiz.fetch(`contas/${await idConta(usuario)}.json`, { cache: 'no-store' });
       if (!r.ok) return null;
       const c = await r.json();
-      return c && c.d && c.r && c.s && c.i && c.c && c.c.iv && c.c.ct ? c : null;
+      return c && c.salt && c.caixa ? c : null;
     } catch (_) { return null; }
+  }
+  // usuário + senha -> acesso aos dados da conta. Usuário que não existe demora o mesmo e dá a mesma mensagem.
+  async function entrar(usuario, senha) {
+    const conta = await lerConta(usuario);
+    if (!conta) { await pbkdf2(senha, rand(16), ITER_CONTA); throw erro('login', 'Usuário ou senha incorretos.'); }
+    const p = await abrirConta(conta, senha);
+    return { gh: GH({ dono: p.dono, repo: p.repo, token: p.token, pasta: p.pasta }), dekRaw: unb64(p.dek), nome: p.nome || usuario };
+  }
+
+  function telaLogin(aviso) {
+    return new Promise(res => {
+      let ultimo = ''; try { ultimo = raiz.localStorage.getItem('cg_nv_usuario') || ''; } catch (_) {}
+      tela(`<h2>Controle de Gastos</h2><p class="travaSub">Entre com seu usuário e senha</p>
+        <form class="travaRec nvForm" autocomplete="on">
+          <label>Usuário<input name="usuario" autocomplete="username" autocapitalize="off" spellcheck="false" value="${escH(ultimo)}"></label>
+          <label>Senha<input name="senha" type="password" autocomplete="current-password" maxlength="200"></label>
+          <div class="travaErro" role="alert">${escH(aviso || '')}</div>
+          <button type="submit" class="btn primary">Entrar</button>
+        </form>`);
+      const f = q('form');
+      setTimeout(() => { try { (ultimo ? f.senha : f.usuario).focus(); } catch (_) {} }, 60);
+      f.onsubmit = async e => {
+        e.preventDefault();
+        const u = f.usuario.value.trim(), s = f.senha.value;
+        if (!u || !s) return msgErro('Digite o usuário e a senha.');
+        const bt = f.querySelector('button[type=submit]'); bt.disabled = true; bt.textContent = 'Entrando…';
+        try {
+          const c = await entrar(u, s);
+          try { raiz.localStorage.setItem('cg_nv_usuario', u); } catch (_) {}
+          res(c);
+        } catch (err) {
+          bt.disabled = false; bt.textContent = 'Entrar';
+          f.senha.value = ''; f.senha.focus();
+          msgErro(err.msg || err.message || 'Não consegui entrar.', true);
+          await espera(600);
+        }
+      };
+    });
   }
 
   /* ------------------------------------------------------------------ abrir o app */
   let _aberto = false;
   async function abrir() {
     registrarSW();
-    const convite = lerConvite();
-    let ap = await kv.get('aparelho'), aviso = '';
-    if (convite && ap && (ap.dono !== convite.d || ap.repo !== convite.r)) ap = null;
+    let aviso = '';
     for (;;) {
-      let c = null;
-      if (ap && !convite) {
-        const r = await telaPin(ap);
-        if (r && r.apagado) { aviso = r.apagado; ap = null; continue; }
-        if (!r) { ap = null; continue; }
-        c = { gh: GH({ dono: r.dono, repo: r.repo, token: r.token }), dekRaw: r.dekRaw };
-      } else {
-        // aparelho novo: com o arquivo de acesso do site, só a senha do cofre; sem ele (ou "outra conta"), o formulário completo
-        const acesso = convite ? null : await lerAcessoPublico();
-        c = acesso ? await telaSenha({ convite: acesso, acesso: true, aviso }) : null;
-        if (!c || c === 'outra') c = await telaSenha({ convite, aviso });
-        aviso = '';
-        const pin = await telaCriarPin(c.novo ? 'Cofre criado. Agora um PIN para este aparelho: nas próximas vezes você só digita o PIN.' : null);
-        tela('<h2>Guardando…</h2><p class="travaSub">Trancando o acesso neste aparelho com o PIN</p>');
-        await guardarAparelho({ dono: c.gh.dono, repo: c.gh.repo, token: c.gh.token, dekRaw: c.dekRaw }, pin);
-        await kv.del('cache');
-      }
-      await usar(c);
+      const c = await telaLogin(aviso);
+      aviso = '';
+      await usar(c); S.nome = c.nome;
       const temCache = await lerCache();
-      tela('<h2>Sincronizando…</h2><p class="travaSub">Buscando seus dados no GitHub</p><div class="travaErro" role="alert"></div>');
+      tela('<h2>Abrindo…</h2><p class="travaSub">Buscando seus dados</p><div class="travaErro" role="alert"></div>');
       try { await Promise.race([sincronizar(), espera(temCache ? 4000 : 60000).then(() => { if (!temCache) throw erro('lento', 'O GitHub está demorando para responder.'); })]); }
       catch (e) {
-        if (e.code === 'token') { await esquecerAparelho(); aviso = e.msg + ' Crie uma nova chave e entre de novo.'; ap = null; continue; }
-        if (!temCache) { aviso = (e.msg || e.message) + (e.code === 'rede' ? ' Sem internet e ainda sem cópia neste aparelho.' : ''); ap = await kv.get('aparelho'); if (ap) { tela(`<h2>Não consegui abrir</h2><p class="travaSub">${escH(aviso)}</p><button class="btn primary" onclick="location.reload()">Tentar de novo</button>`); await new Promise(() => {}); } continue; }
+        if (e.code === 'token') { aviso = 'O acesso desta conta venceu. Avise quem administra o app.'; continue; }
+        if (!temCache) { aviso = (e.msg || e.message) + (e.code === 'rede' ? ' Sem internet.' : ''); continue; }
         avisarErro(e);
       }
       fecharTela();
@@ -549,7 +496,7 @@
     }
   }
 
-  // sincroniza de tempos em tempos, ao voltar para o app e ao voltar a internet. Mais de 5 min em segundo plano = pede o PIN.
+  // sincroniza de tempos em tempos, ao voltar para o app e ao voltar a internet. Mais de 5 min em segundo plano = pede o login de novo.
   let _ocultoEm = 0;
   function vigiar() {
     const d = raiz.document;
@@ -656,85 +603,16 @@
       return;
     }
     const e = estado();
-    const st = e.erro ? `<span style="color:var(--bad)">● ${escH(e.erro)}</span>` : e.sincronizando ? '● Sincronizando…' : e.pendente ? '● Alterações aguardando envio' : `<span style="color:var(--good)">●</span> Sincronizado ${escH(quando(e.ultimo))}`;
-    el.innerHTML = `<p class="small" id="nvStatus">${st}<br>Cofre: <b>${escH(e.dono)}/${escH(e.repo)}</b> · dados criptografados · cada alteração vira uma versão no histórico do repositório (backup).</p>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+    const st = e.erro ? `<span style="color:var(--bad)">● ${escH(e.erro)}</span>` : e.sincronizando ? '● Sincronizando…' : e.pendente ? '● Alterações aguardando envio' : `<span style="color:var(--good)">●</span> Tudo salvo ${escH(quando(e.ultimo))}`;
+    el.innerHTML = `<p class="small" id="nvStatus">${st}<br>Conta: <b>${escH(S.nome || '')}</b> · seus dados ficam criptografados num repositório privado; cada alteração vira uma versão no histórico (backup).</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn primary" data-nv="sync">Sincronizar agora</button>
-        <button class="btn" data-nv="qr">Conectar outro aparelho</button>
-        <button class="btn" data-nv="pin">Trocar PIN deste aparelho</button>
+        <button class="btn" data-nv="sair">Sair</button>
       </div>
-      <div id="nvQr"></div>
-      <details class="nvAjuda"><summary>Entrar em aparelho novo só com a senha (arquivo de acesso)</summary>
-        Gera o <b>acesso.json</b>: a chave do GitHub trancada pela senha do cofre, publicada junto com o app. Com ele, um aparelho novo pede só a senha do cofre (depois, só o PIN). Gere de novo se trocar a senha ou a chave.
-        <form class="frow" style="align-items:flex-end" id="nvAcForm"><div class="f"><label>Senha do cofre<input type="password" id="nvAcS" autocomplete="current-password"></label></div><button class="btn" type="submit">Gerar acesso.json</button></form></details>
-      <details class="nvAjuda"><summary>Trocar a senha do cofre</summary>
-        <div class="frow"><div class="f"><label>Senha atual<input type="password" id="nvSa" autocomplete="current-password"></label></div>
-        <div class="f"><label>Nova senha (mín. ${MIN_SENHA})<input type="password" id="nvSn" autocomplete="new-password"></label></div>
-        <div class="f"><label>Repita a nova<input type="password" id="nvSn2" autocomplete="new-password"></label></div></div>
-        <button class="btn" data-nv="senha">Trocar senha</button> <span class="small">Os outros aparelhos continuam funcionando (eles usam o PIN deles).</span></details>
-      <details class="nvAjuda"><summary>Trocar a chave de acesso do GitHub</summary>
-        <div class="f"><label>Nova chave (token)<input type="password" id="nvTk" autocomplete="off"></label></div>
-        <button class="btn" data-nv="token">Salvar nova chave</button></details>
-      <div class="mt"><button class="btn danger" data-nv="sair">Desconectar este aparelho</button></div>`;
+      <p class="small mt">Contas novas e troca de senha são feitas no computador (ferramentas/conta_nuvem.js).</p>`;
     const on = (k, f) => { const b = el.querySelector(`[data-nv="${k}"]`); if (b) b.onclick = () => f().catch(err => toastE(err)); };
     on('sync', async () => { await sincronizar(); renderAjustes(el, modo); toastM('Sincronizado ✔'); });
-    on('qr', async () => {
-      const box = el.querySelector('#nvQr');
-      box.innerHTML = `<form class="frow" style="align-items:flex-end"><div class="f"><label>Senha do cofre (para gerar o QR code)<input type="password" id="nvQs" autocomplete="current-password"></label></div><button class="btn primary" type="submit">Gerar QR code</button></form>`;
-      const fq = box.querySelector('form'); setTimeout(() => box.querySelector('#nvQs').focus(), 50);
-      fq.onsubmit = ev => { ev.preventDefault(); gerarQr(box, box.querySelector('#nvQs').value).catch(err => toastE(err)); };
-    });
-    const fa = el.querySelector('#nvAcForm');
-    if (fa) fa.onsubmit = ev => {
-      ev.preventDefault();
-      (async () => {
-        const s = el.querySelector('#nvAcS').value; if (!s) return;
-        const c = await convite(s);
-        const a = raiz.document.createElement('a');
-        a.href = URL.createObjectURL(new Blob([JSON.stringify(c)], { type: 'application/json' }));
-        a.download = 'acesso.json'; raiz.document.body.appendChild(a); a.click(); a.remove();
-        el.querySelector('#nvAcS').value = '';
-        toastM('acesso.json gerado: coloque-o na pasta do app e publique junto com o código');
-      })().catch(err => toastE(err));
-    };
-    async function gerarQr(box, senha) {
-      if (!senha) return;
-      const link = await criarConvite(senha);
-      box.innerHTML = `<div class="lanItem">${typeof raiz.qrSvg === 'function' ? `<div class="qrBox">${raiz.qrSvg(link)}</div>` : ''}<div class="small">Aponte a câmera do outro aparelho para o QR code (ou abra este link nele). Lá, digite a senha do cofre e crie um PIN. <button class="linkish" data-nv="copiar">Copiar link</button></div></div>`;
-      box.querySelector('[data-nv="copiar"]').onclick = () => { try { raiz.navigator.clipboard.writeText(link); toastM('Link copiado'); } catch (_) {} };
-    }
-    on('pin', async () => {
-      const pin = await telaCriarPin('Novo PIN para este aparelho');
-      await guardarAparelho({ dono: S.dono, repo: S.repo, token: S.gh.token, dekRaw: S.dekRaw }, pin); fecharTela(); toastM('PIN trocado ✔');
-    });
-    on('senha', async () => {
-      const a = el.querySelector('#nvSa').value, n = el.querySelector('#nvSn').value, n2 = el.querySelector('#nvSn2').value;
-      if (n.length < MIN_SENHA) throw erro('x', `A nova senha precisa ter pelo menos ${MIN_SENHA} caracteres.`);
-      if (n !== n2) throw erro('x', 'As duas senhas novas não são iguais.');
-      await trocarSenha(a, n); el.querySelector('#nvSa').value = el.querySelector('#nvSn').value = el.querySelector('#nvSn2').value = '';
-      toastM('Senha do cofre trocada ✔');
-    });
-    on('token', async () => {
-      const tk = el.querySelector('#nvTk').value.trim(); if (!tk) throw erro('x', 'Cole a nova chave.');
-      const gh = GH({ dono: S.dono, repo: S.repo, token: tk }); await conferirRepo(gh);
-      const pin = await telaCriarPin('Confirme criando o PIN deste aparelho (pode ser o mesmo)');
-      fecharTela(); S.gh = gh;
-      await guardarAparelho({ dono: S.dono, repo: S.repo, token: tk, dekRaw: S.dekRaw }, pin); el.querySelector('#nvTk').value = ''; toastM('Chave salva ✔');
-    });
-    on('sair', async () => {
-      const ok = raiz.confirmBox ? await raiz.confirmBox('Desconectar este aparelho', 'Apaga deste aparelho a chave de acesso e a cópia local dos dados. Nada é apagado no GitHub. Para usar de novo, entre com a senha do cofre.', 'Desconectar') : true;
-      if (!ok) return;
-      if (S.ocupado || S.timer) { try { await sincronizar(); } catch (_) {} }
-      await esquecerAparelho(); raiz.location.reload();
-    });
-  }
-  async function trocarSenha(atual, nova) {
-    const l = await S.gh.listar(), f = l.find(x => x.nome === 'cofre.json');
-    const cofre = JSON.parse(await S.gh.ler('cofre.json'));
-    const dekRaw = await abrirCofre(cofre, await kekDoCofre(cofre, atual));
-    const salt = rand(16), kek = await pbkdf2(nova, salt, ITER_SENHA);
-    const novo = { ...cofre, kdf: { nome: 'PBKDF2-SHA256', iter: ITER_SENHA, salt: b64(salt) }, chave: await cifrar(kek, dekRaw), trocada: new Date().toISOString() };
-    await S.gh.gravar('cofre.json', JSON.stringify(novo, null, 1), f && f.sha);
+    on('sair', async () => { if (S.ocupado || S.timer) { try { await sincronizar(); } catch (_) {} } raiz.location.reload(); });
   }
   const toastM = m => { if (typeof raiz.toast === 'function') raiz.toast(m); };
   const toastE = e => { console.error(e); toastM(e.msg || e.message || 'Não deu certo'); };
@@ -751,12 +629,12 @@
   const Nuvem = {
     ativo, abrir, dados, putTx, delTx, salvarConfig, sincronizar, estado, cdi, galeria, enviar, trazer, renderAjustes,
     aoMudar(fn) { S.aoMudar = fn; }, aoStatus(fn) { S.aoStatus = fn; },
-    rotulo: () => S.dono ? `${S.dono}/${S.repo}` : 'Nuvem',
-    sair: async () => { await esquecerAparelho(); raiz.location.reload(); },
+    rotulo: () => S.nome || 'Minha conta',
+    sair: () => raiz.location.reload(),
     get aberto() { return _aberto; },
     _fetch: null,
     // só para os testes automáticos
-    _t: { S, kv, selar, abrirSelado, mesclar, conteudoLocal, resolver, criarCofre, abrirCofre, kekDoCofre, conectar, usar, guardarAparelho, abrirAparelho, GH, b64url, unb64url, trocarSenha, criarConvite, convite, lerAcessoPublico, lerUltimo },
+    _t: { S, kv, selar, abrirSelado, mesclar, conteudoLocal, resolver, criarCofre, abrirCofre, kekDoCofre, conectar, usar, GH, b64url, unb64url, lerUltimo, idConta, criarConta, abrirConta, lerConta, entrar },
   };
   raiz.Nuvem = Nuvem;
   if (typeof module !== 'undefined' && module.exports) module.exports = Nuvem;
