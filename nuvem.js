@@ -409,13 +409,42 @@
     });
   }
 
-  /* ------------------------------------------------------------------ contas (usuário + senha) */
+  /* ------------------------------------------------------------------ contas (usuário + senha), sem servidor */
   // Cada conta é um arquivo publicado com o app: contas/<id>.json, id = sha256("cg-conta:" + usuário) (não revela o nome).
-  // Dentro, trancado pela senha da conta (PBKDF2 600 mil + AES-GCM): {nome, dono, repo, pasta, token, dek}.
-  // Entrar = baixar o arquivo da conta, destrancar com a senha e abrir os dados da pasta dela. Nada de GitHub na tela.
-  // Contas são criadas no computador (ferramentas/conta_nuvem.js) e publicadas junto com o código.
-  const ITER_CONTA = 600000;
-  const idConta = async usuario => (await hashTexto('cg-conta:' + String(usuario).trim().toLowerCase())).slice(0, 32);
+  // v2 (atual):
+  //   cx  = {priv, dek} trancados pela SENHA (PBKDF2 600 mil + AES-GCM)
+  //   rc  = {priv, dek} trancados pelo CÓDIGO DE RECUPERAÇÃO (para "Esqueci a senha")
+  //   pub = chave pública ECDH (P-256) da conta; epk = chave pública de quem aprovou
+  //   tk  = {nome, dono, repo, token, pasta, site?} cifrado com ECDH(epk, priv): só a própria conta abre
+  // Criar conta / trocar senha = PEDIDO (link #pedido=...) que o administrador abre e aprova; o app dele grava o
+  // arquivo no repositório do site com a chave do site (que só ele tem, dentro do tk dele: site={dono, repo, token}).
+  // v1 (antiga): caixa = {nome, dono, repo, pasta, token, dek} trancada pela senha (criada pela ferramenta do computador).
+  const ITER_CONTA = 600000, ITER_REC = 100000;
+  const RE_USUARIO = /^[a-z0-9._@+-]{3,64}$/;
+  const normU = u => String(u || '').trim().toLowerCase();
+  const idConta = async usuario => (await hashTexto('cg-conta:' + normU(usuario))).slice(0, 32);
+  const ECDH = { name: 'ECDH', namedCurve: 'P-256' };
+  const novoPar = () => C.subtle.generateKey(ECDH, true, ['deriveBits']);
+  const exportar = async (fmt, k) => b64(new Uint8Array(await C.subtle.exportKey(fmt, k)));
+  const importarPriv = b => C.subtle.importKey('pkcs8', unb64(b), ECDH, false, ['deriveBits']);
+  async function chaveComum(priv, pubB64) {
+    const pub = await C.subtle.importKey('raw', unb64(pubB64), ECDH, false, []);
+    const bits = await C.subtle.deriveBits({ name: 'ECDH', public: pub }, priv, 256);
+    return C.subtle.importKey('raw', await C.subtle.digest('SHA-256', bits), 'AES-GCM', false, ['encrypt', 'decrypt']);
+  }
+  async function trancar(segredo, iter, conteudo) {
+    const salt = rand(16), k = await pbkdf2(segredo, salt, iter);
+    return { salt: b64(salt), iter, c: await cifrar(k, enc.encode(JSON.stringify(conteudo))) };
+  }
+  async function destrancar(segredo, cx) {
+    const k = await pbkdf2(segredo, unb64(cx.salt), cx.iter);
+    return JSON.parse(dec.decode(await decifrar(k, cx.c)));
+  }
+  const gerarCodigo = () => { const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; return Array.from(rand(20), x => A[x % 32]).join('').match(/.{5}/g).join('-'); };
+  const limparCodigo = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const mLogin = () => erro('login', 'Usuário ou senha incorretos.');
+
+  // v1 (ferramenta do computador)
   async function criarConta(dados, senha) {
     const salt = rand(16), k = await pbkdf2(senha, salt, ITER_CONTA);
     return { v: 1, salt: b64(salt), iter: ITER_CONTA, caixa: await cifrar(k, enc.encode(JSON.stringify(dados))) };
@@ -423,35 +452,135 @@
   async function abrirConta(conta, senha) {
     const k = await pbkdf2(senha, unb64(conta.salt), conta.iter || ITER_CONTA);
     try { return JSON.parse(dec.decode(await decifrar(k, conta.caixa))); }
-    catch (_) { throw erro('login', 'Usuário ou senha incorretos.'); }
+    catch (_) { throw mLogin(); }
   }
   async function lerConta(usuario) {
     try {
       const r = await raiz.fetch(`contas/${await idConta(usuario)}.json`, { cache: 'no-store' });
       if (!r.ok) return null;
       const c = await r.json();
-      return c && c.salt && c.caixa ? c : null;
+      return c && (c.caixa || c.cx) ? c : null;
     } catch (_) { return null; }
   }
-  // usuário + senha -> acesso aos dados da conta. Usuário que não existe demora o mesmo e dá a mesma mensagem.
+  async function abrirTk(conta, privB64) { return JSON.parse(dec.decode(await decifrar(await chaveComum(await importarPriv(privB64), conta.epk), conta.tk))); }
+
+  // usuário + senha -> acesso aos dados. Usuário que não existe demora o mesmo e dá a mesma mensagem.
   async function entrar(usuario, senha) {
-    const conta = await lerConta(usuario);
-    if (!conta) { await pbkdf2(senha, rand(16), ITER_CONTA); throw erro('login', 'Usuário ou senha incorretos.'); }
-    const p = await abrirConta(conta, senha);
-    return { gh: GH({ dono: p.dono, repo: p.repo, token: p.token, pasta: p.pasta }), dekRaw: unb64(p.dek), nome: p.nome || usuario };
+    const u = normU(usuario), conta = await lerConta(u);
+    if (!conta) { await pbkdf2(senha, rand(16), ITER_CONTA); throw mLogin(); }
+    let p, dekRaw, seg = null;
+    if (conta.v === 2) {
+      try { seg = await destrancar(senha, conta.cx); } catch (_) { throw mLogin(); }
+      p = await abrirTk(conta, seg.priv); dekRaw = unb64(seg.dek);
+    } else {
+      p = await abrirConta(conta, senha); dekRaw = unb64(p.dek);
+    }
+    Object.assign(S, { usuario: u, conta, seg, site: p.site || null, v1: conta.v !== 2 ? p : null });
+    return { gh: GH({ dono: p.dono, repo: p.repo, token: p.token, pasta: p.pasta }), dekRaw, nome: p.nome || u };
   }
 
+  // pedidos (link #pedido=...): conta nova ou senha nova
+  async function pedidoConta(usuario, nome, senha) {
+    const u = normU(usuario);
+    if (!RE_USUARIO.test(u)) throw erro('usuario', 'Usuário: de 3 a 64 letras ou números, sem espaço (pode ser um e-mail).');
+    if (String(senha).length < MIN_SENHA) throw erro('senha', `A senha precisa ter pelo menos ${MIN_SENHA} caracteres.`);
+    if (await lerConta(u)) throw erro('existe', 'Esse usuário já existe. Escolha outro.');
+    const par = await novoPar();
+    const seg = { priv: await exportar('pkcs8', par.privateKey), dek: b64(rand(32)) };
+    const codigo = gerarCodigo();
+    const pedido = { v: 2, t: 'nova', u, n: String(nome || '').trim().slice(0, 40) || u, pub: await exportar('raw', par.publicKey),
+      cx: await trancar(senha, ITER_CONTA, seg), rc: await trancar(limparCodigo(codigo), ITER_REC, seg), em: Date.now() };
+    return { codigo, pedido };
+  }
+  async function pedidoSenha(usuario, codigo, nova) {
+    const u = normU(usuario), conta = await lerConta(u);
+    if (String(nova).length < MIN_SENHA) throw erro('senha', `A senha precisa ter pelo menos ${MIN_SENHA} caracteres.`);
+    if (!conta || conta.v !== 2) { await pbkdf2('x', rand(16), ITER_REC); throw erro('login', 'Usuário ou código de recuperação incorretos.'); }
+    let seg; try { seg = await destrancar(limparCodigo(codigo), conta.rc); } catch (_) { throw erro('login', 'Usuário ou código de recuperação incorretos.'); }
+    const p = await abrirTk(conta, seg.priv);
+    return { v: 2, t: 'senha', u, n: p.nome || u, cx: await trancar(nova, ITER_CONTA, seg), em: Date.now() };
+  }
+  const linkPedido = p => raiz.location.origin + raiz.location.pathname + '#pedido=' + b64url(JSON.stringify(p));
+  function lerPedidoDoLink() {
+    const m = /^#pedido=([\w-]{20,})$/.exec(raiz.location.hash || '');
+    if (!m) return null;
+    try { raiz.history.replaceState(null, '', raiz.location.pathname + raiz.location.search); } catch (_) {}
+    try { const p = JSON.parse(unb64url(m[1])); return p && p.v === 2 && (p.t === 'nova' || p.t === 'senha') && p.u && p.cx ? p : null; } catch (_) { return null; }
+  }
+
+  // administrador: grava contas no repositório do site
+  const siteGH = () => GH({ dono: S.site.dono, repo: S.site.repo, token: S.site.token, pasta: 'contas' });
+  async function arquivoConta(id) {
+    const l = await siteGH().listar(), f = l.find(x => x.nome === id + '.json');
+    return f ? { sha: f.sha, conta: JSON.parse(await siteGH().ler(id + '.json')) } : null;
+  }
+  async function aprovarPedido(p) {
+    if (!S.site) throw erro('admin', 'Só o administrador aprova pedidos.');
+    const id = await idConta(p.u), atual = await arquivoConta(id);
+    let conta;
+    if (p.t === 'nova') {
+      if (atual) throw erro('existe', `O usuário "${p.u}" já existe.`);
+      const eph = await novoPar();
+      const dados = { nome: p.n, dono: S.dono, repo: S.repo, token: S.gh.token, pasta: `usuarios/${id.slice(0, 16)}` };
+      conta = { v: 2, pub: p.pub, cx: p.cx, rc: p.rc, epk: await exportar('raw', eph.publicKey),
+        tk: await cifrar(await chaveComum(eph.privateKey, p.pub), enc.encode(JSON.stringify(dados))) };
+    } else {
+      if (!atual || atual.conta.v !== 2) throw erro('nao', `O usuário "${p.u}" não existe.`);
+      conta = { ...atual.conta, cx: p.cx };
+    }
+    await siteGH().gravar(id + '.json', JSON.stringify(conta), atual && atual.sha);
+  }
+  async function recusarNada() { /* recusar = não gravar nada */ }
+  // conta do administrador: liga a aprovação (chave do site) e passa a conta para o formato v2. Devolve o código de recuperação.
+  async function ativarAprovacao(senha, tokenSite, siteDono, siteRepo) {
+    const site = { dono: siteDono, repo: siteRepo, token: tokenSite };
+    const gh = GH({ ...site, pasta: 'contas' });
+    const info = await gh.info();
+    if (info.permissions && !info.permissions.push) throw erro('permissao', 'A chave do site não tem permissão de escrita (Contents: Read and write).');
+    const conta = await lerConta(S.usuario);
+    let seg, p;
+    if (conta.v === 2) { try { seg = await destrancar(senha, conta.cx); } catch (_) { throw erro('senha', 'Senha incorreta.'); } p = await abrirTk(conta, seg.priv); }
+    else { try { p = await abrirConta(conta, senha); } catch (_) { throw erro('senha', 'Senha incorreta.'); } }
+    const par = await novoPar(), eph = await novoPar();
+    seg = { priv: await exportar('pkcs8', par.privateKey), dek: seg ? seg.dek : p.dek };
+    const pub = await exportar('raw', par.publicKey), codigo = gerarCodigo();
+    const dados = { nome: p.nome, dono: p.dono, repo: p.repo, token: p.token, pasta: p.pasta, site };
+    const nova = { v: 2, pub, cx: await trancar(senha, ITER_CONTA, seg), rc: await trancar(limparCodigo(codigo), ITER_REC, seg),
+      epk: await exportar('raw', eph.publicKey), tk: await cifrar(await chaveComum(eph.privateKey, pub), enc.encode(JSON.stringify(dados))) };
+    S.site = site;
+    const id = await idConta(S.usuario), atual = await arquivoConta(id);
+    await siteGH().gravar(id + '.json', JSON.stringify(nova), atual && atual.sha);
+    return codigo;
+  }
+  // administrador troca a própria senha direto (os outros mandam pedido)
+  async function trocarSenhaAdmin(atual, nova) {
+    const id = await idConta(S.usuario), arq = await arquivoConta(id);
+    let seg; try { seg = await destrancar(atual, arq.conta.cx); } catch (_) { throw erro('senha', 'Senha atual incorreta.'); }
+    await siteGH().gravar(id + '.json', JSON.stringify({ ...arq.conta, cx: await trancar(nova, ITER_CONTA, seg) }), arq.sha);
+  }
+  async function pedidoTrocaSenha(atual, nova) {   // usuário comum: confere a senha atual e gera o pedido
+    const conta = await lerConta(S.usuario);
+    let seg; try { seg = await destrancar(atual, conta.cx); } catch (_) { throw erro('senha', 'Senha atual incorreta.'); }
+    if (String(nova).length < MIN_SENHA) throw erro('senha', `A senha precisa ter pelo menos ${MIN_SENHA} caracteres.`);
+    return { v: 2, t: 'senha', u: S.usuario, n: S.nome || S.usuario, cx: await trancar(nova, ITER_CONTA, seg), em: Date.now() };
+  }
+
+  /* ------------------------------------------------------------------ telas: login, criar conta, esqueci a senha, pedido */
+  let _pedidoNoLink = null;
+  const avisoHtml = a => !a ? '' : typeof a === 'string' ? escH(a) : `<span style="color:var(--good)">${escH(a.ok)}</span>`;
   function telaLogin(aviso) {
     return new Promise(res => {
       let ultimo = ''; try { ultimo = raiz.localStorage.getItem('cg_nv_usuario') || ''; } catch (_) {}
-      tela(`<h2>Controle de Gastos</h2><p class="travaSub">Entre com seu usuário e senha</p>
+      tela(`<h2>Controle de Gastos</h2><p class="travaSub">${_pedidoNoLink ? 'Entre como administrador para ver o pedido' : 'Entre com seu usuário e senha'}</p>
         <form class="travaRec nvForm" autocomplete="on">
           <label>Usuário<input name="usuario" autocomplete="username" autocapitalize="off" spellcheck="false" value="${escH(ultimo)}"></label>
           <label>Senha<input name="senha" type="password" autocomplete="current-password" maxlength="200"></label>
-          <div class="travaErro" role="alert">${escH(aviso || '')}</div>
+          <div class="travaErro" role="alert">${avisoHtml(aviso)}</div>
           <button type="submit" class="btn primary">Entrar</button>
-        </form>`);
+        </form>
+        <div class="travaRodape nvLinks"><button type="button" class="linkish" data-acao="criar">Criar conta</button><button type="button" class="linkish" data-acao="esqueci">Esqueci a senha</button></div>`);
       const f = q('form');
+      _tela.querySelectorAll('[data-acao]').forEach(b => b.onclick = () => res({ acao: b.dataset.acao }));
       setTimeout(() => { try { (ultimo ? f.senha : f.usuario).focus(); } catch (_) {} }, 60);
       f.onsubmit = async e => {
         e.preventDefault();
@@ -471,27 +600,125 @@
       };
     });
   }
+  // mostra o link do pedido para a pessoa mandar ao administrador (WhatsApp etc.)
+  function telaEnviarPedido(titulo, texto, p, codigo) {
+    return new Promise(res => {
+      const link = linkPedido(p);
+      tela(`<h2>${escH(titulo)}</h2>
+        ${codigo ? `<p class="travaSub"><b>Seu código de recuperação</b> (anote e guarde: é o único jeito de recuperar a conta se esquecer a senha):</p>
+          <div class="nvCodigo">${escH(codigo)}</div>` : ''}
+        <p class="travaSub">${escH(texto)}</p>
+        <div class="travaRec nvForm">
+          <button type="button" class="btn primary" data-k="enviar">Enviar pedido ao administrador</button>
+          <button type="button" class="btn" data-k="copiar">Copiar link do pedido</button>
+          <button type="button" class="btn" data-k="ok">${codigo ? 'Anotei o código, voltar' : 'Voltar'}</button>
+        </div>`);
+      q('[data-k="enviar"]').onclick = async () => {
+        try { if (raiz.navigator.share) { await raiz.navigator.share({ title: 'Controle de Gastos', text: `${titulo}: ${p.n} (${p.u})`, url: link }); return; } } catch (_) { return; }
+        try { await raiz.navigator.clipboard.writeText(link); toastM('Link copiado: cole na conversa com o administrador'); } catch (_) { raiz.prompt('Copie o link e mande ao administrador:', link); }
+      };
+      q('[data-k="copiar"]').onclick = async () => { try { await raiz.navigator.clipboard.writeText(link); toastM('Link copiado'); } catch (_) { raiz.prompt('Copie o link:', link); } };
+      q('[data-k="ok"]').onclick = () => res();
+    });
+  }
+  function telaCriarConta() {
+    return new Promise(res => {
+      tela(`<h2>Criar conta</h2><p class="travaSub">Seus dados ficam separados e criptografados com a sua senha. O administrador aprova a conta.</p>
+        <form class="travaRec nvForm" autocomplete="on">
+          <label>Usuário<input name="usuario" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="ex.: ana"></label>
+          <label>Seu nome<input name="nome" autocomplete="name" maxlength="40"></label>
+          <label>Senha (mín. ${MIN_SENHA})<input name="senha" type="password" autocomplete="new-password" maxlength="200"></label>
+          <label>Repita a senha<input name="senha2" type="password" autocomplete="new-password" maxlength="200"></label>
+          <div class="travaErro" role="alert"></div>
+          <button type="submit" class="btn primary">Criar conta</button>
+        </form>
+        <div class="travaRodape"><button type="button" class="linkish" data-acao="voltar">Voltar</button></div>`);
+      q('[data-acao="voltar"]').onclick = () => res(null);
+      const f = q('form'); setTimeout(() => { try { f.usuario.focus(); } catch (_) {} }, 60);
+      f.onsubmit = async e => {
+        e.preventDefault();
+        if (f.senha.value !== f.senha2.value) return msgErro('As duas senhas não são iguais.');
+        const bt = f.querySelector('button[type=submit]'); bt.disabled = true; bt.textContent = 'Criando…';
+        try {
+          const r = await pedidoConta(f.usuario.value, f.nome.value, f.senha.value);
+          await telaEnviarPedido('Conta criada', 'Agora mande o pedido ao administrador. Quando ele aprovar (leva cerca de 1 minuto), você entra com seu usuário e senha.', r.pedido, r.codigo);
+          try { raiz.localStorage.setItem('cg_nv_usuario', r.pedido.u); } catch (_) {}
+          res({ ok: 'Pedido de conta enviado. Depois da aprovação, entre com seu usuário e senha.' });
+        } catch (err) { bt.disabled = false; bt.textContent = 'Criar conta'; msgErro(err.msg || err.message || 'Não deu certo.'); }
+      };
+    });
+  }
+  function telaEsqueci() {
+    return new Promise(res => {
+      tela(`<h2>Esqueci a senha</h2><p class="travaSub">Use o código de recuperação que apareceu quando a conta foi criada. Seus dados continuam os mesmos.</p>
+        <form class="travaRec nvForm" autocomplete="off">
+          <label>Usuário<input name="usuario" autocapitalize="off" spellcheck="false"></label>
+          <label>Código de recuperação<input name="codigo" autocapitalize="characters" spellcheck="false" placeholder="XXXXX-XXXXX-XXXXX-XXXXX"></label>
+          <label>Nova senha (mín. ${MIN_SENHA})<input name="senha" type="password" autocomplete="new-password" maxlength="200"></label>
+          <label>Repita a nova senha<input name="senha2" type="password" autocomplete="new-password" maxlength="200"></label>
+          <div class="travaErro" role="alert"></div>
+          <button type="submit" class="btn primary">Continuar</button>
+        </form>
+        <div class="travaRodape"><button type="button" class="linkish" data-acao="voltar">Voltar</button></div>`);
+      q('[data-acao="voltar"]').onclick = () => res(null);
+      const f = q('form');
+      let ultimo = ''; try { ultimo = raiz.localStorage.getItem('cg_nv_usuario') || ''; } catch (_) {}
+      f.usuario.value = ultimo; setTimeout(() => { try { (ultimo ? f.codigo : f.usuario).focus(); } catch (_) {} }, 60);
+      f.onsubmit = async e => {
+        e.preventDefault();
+        if (f.senha.value !== f.senha2.value) return msgErro('As duas senhas não são iguais.');
+        const bt = f.querySelector('button[type=submit]'); bt.disabled = true; bt.textContent = 'Conferindo…';
+        try {
+          const p = await pedidoSenha(f.usuario.value, f.codigo.value, f.senha.value);
+          await telaEnviarPedido('Nova senha pronta', 'Mande o pedido ao administrador. Quando ele aprovar (cerca de 1 minuto), entre com a nova senha.', p);
+          res({ ok: 'Pedido de nova senha enviado. Depois da aprovação, entre com a nova senha.' });
+        } catch (err) { bt.disabled = false; bt.textContent = 'Continuar'; msgErro(err.msg || err.message || 'Não deu certo.'); }
+      };
+    });
+  }
+  // administrador abriu um link de pedido: mostra e aprova (grava a conta no site)
+  async function telaAprovar(p) {
+    if (!S.site) { toastM('Esse link é um pedido para o administrador aprovar.'); return; }
+    const ok = await new Promise(res => {
+      tela(`<h2>${p.t === 'nova' ? 'Conta nova' : 'Nova senha'}</h2>
+        <p class="travaSub"><b>${escH(p.n)}</b> (usuário <b>${escH(p.u)}</b>) ${p.t === 'nova' ? 'pediu para criar uma conta.' : 'pediu uma senha nova (com o código de recuperação).'}<br>
+        Pedido feito em ${escH(new Date(p.em || Date.now()).toLocaleString('pt-BR'))}. Confirme com a pessoa antes de aprovar.</p>
+        <div class="travaErro" role="alert"></div>
+        <div class="travaRec nvForm"><button type="button" class="btn primary" data-k="sim">Aprovar</button><button type="button" class="btn" data-k="nao">Recusar</button></div>`);
+      q('[data-k="sim"]').onclick = async () => {
+        const b = q('[data-k="sim"]'); b.disabled = true; b.textContent = 'Aprovando…';
+        try { await aprovarPedido(p); res(true); } catch (e) { b.disabled = false; b.textContent = 'Aprovar'; msgErro(e.msg || e.message); }
+      };
+      q('[data-k="nao"]').onclick = () => res(false);
+    });
+    fecharTela();
+    toastM(ok ? `Aprovado: em cerca de 1 minuto ${p.n} já consegue entrar.` : 'Pedido recusado: nada foi alterado.');
+  }
 
   /* ------------------------------------------------------------------ abrir o app */
   let _aberto = false;
   async function abrir() {
     registrarSW();
+    _pedidoNoLink = lerPedidoDoLink();
     let aviso = '';
     for (;;) {
       const c = await telaLogin(aviso);
       aviso = '';
+      if (c.acao === 'criar') { aviso = (await telaCriarConta()) || ''; continue; }
+      if (c.acao === 'esqueci') { aviso = (await telaEsqueci()) || ''; continue; }
       await usar(c); S.nome = c.nome;
       const temCache = await lerCache();
       tela('<h2>Abrindo…</h2><p class="travaSub">Buscando seus dados</p><div class="travaErro" role="alert"></div>');
       try { await Promise.race([sincronizar(), espera(temCache ? 4000 : 60000).then(() => { if (!temCache) throw erro('lento', 'O GitHub está demorando para responder.'); })]); }
       catch (e) {
-        if (e.code === 'token') { aviso = 'O acesso desta conta venceu. Avise quem administra o app.'; continue; }
+        if (e.code === 'token') { aviso = 'O acesso desta conta venceu. Avise o administrador.'; continue; }
         if (!temCache) { aviso = (e.msg || e.message) + (e.code === 'rede' ? ' Sem internet.' : ''); continue; }
         avisarErro(e);
       }
       fecharTela();
       _aberto = true;
       vigiar();
+      if (_pedidoNoLink) { const p = _pedidoNoLink; _pedidoNoLink = null; setTimeout(() => telaAprovar(p).catch(toastE), 300); }
       return dados();
     }
   }
@@ -609,10 +836,52 @@
         <button class="btn primary" data-nv="sync">Sincronizar agora</button>
         <button class="btn" data-nv="sair">Sair</button>
       </div>
-      <p class="small mt">Contas novas e troca de senha são feitas no computador (ferramentas/conta_nuvem.js).</p>`;
+      <details class="nvAjuda mt"><summary>Trocar a senha</summary>
+        <div class="frow"><div class="f"><label>Senha atual<input type="password" id="nvSa" autocomplete="current-password"></label></div>
+        <div class="f"><label>Nova senha (mín. ${MIN_SENHA})<input type="password" id="nvSn" autocomplete="new-password"></label></div>
+        <div class="f"><label>Repita a nova<input type="password" id="nvSn2" autocomplete="new-password"></label></div></div>
+        <button class="btn" data-nv="senha">Trocar senha</button>
+        ${S.site ? '' : '<span class="small"> A troca vira um pedido que o administrador aprova.</span>'}</details>
+      ${S.site ? `<p class="small mt"><b>Você é o administrador.</b> Quando alguém criar uma conta ou pedir senha nova, a pessoa te manda um link: abra, entre e toque em Aprovar.</p>`
+      : S.v1 ? `<details class="nvAjuda mt"><summary>Ativar "Criar conta" e "Esqueci a senha" (administrador)</summary>
+        Para aprovar contas, o seu app precisa de uma chave do GitHub que grave no repositório do <b>site</b>
+        (${escH(siteAtual().dono)}/${escH(siteAtual().repo)}): <a href="https://github.com/settings/personal-access-tokens/new?name=controle-gastos-site&description=Aprovar+contas+do+Controle+de+Gastos&expires_in=365&contents=write" target="_blank" rel="noopener">criar a chave</a>
+        (em "Repository access" escolha <b>Only select repositories</b> › <b>${escH(siteAtual().repo)}</b>).
+        <div class="frow"><div class="f"><label>Sua senha<input type="password" id="nvAs" autocomplete="current-password"></label></div>
+        <div class="f"><label>Chave do site (github_pat_…)<input type="password" id="nvAt" autocomplete="off"></label></div></div>
+        <button class="btn primary" data-nv="ativar">Ativar</button></details>` : ''}`;
     const on = (k, f) => { const b = el.querySelector(`[data-nv="${k}"]`); if (b) b.onclick = () => f().catch(err => toastE(err)); };
     on('sync', async () => { await sincronizar(); renderAjustes(el, modo); toastM('Sincronizado ✔'); });
     on('sair', async () => { if (S.ocupado || S.timer) { try { await sincronizar(); } catch (_) {} } raiz.location.reload(); });
+    on('senha', async () => {
+      const a = el.querySelector('#nvSa').value, n = el.querySelector('#nvSn').value, n2 = el.querySelector('#nvSn2').value;
+      if (n.length < MIN_SENHA) throw erro('x', `A nova senha precisa ter pelo menos ${MIN_SENHA} caracteres.`);
+      if (n !== n2) throw erro('x', 'As duas senhas novas não são iguais.');
+      if (S.site) { await trocarSenhaAdmin(a, n); toastM('Senha trocada ✔ (vale em cerca de 1 minuto)'); }
+      else {
+        if (S.v1) throw erro('x', 'Ative primeiro a criação de contas (abaixo) para trocar a senha por aqui.');
+        const p = await pedidoTrocaSenha(a, n);
+        await telaEnviarPedido('Pedido de nova senha', 'Mande ao administrador. Depois da aprovação (cerca de 1 minuto), use a nova senha.', p); fecharTela();
+      }
+      el.querySelector('#nvSa').value = el.querySelector('#nvSn').value = el.querySelector('#nvSn2').value = '';
+    });
+    on('ativar', async () => {
+      const s = el.querySelector('#nvAs').value, tk = el.querySelector('#nvAt').value.trim();
+      if (!s || !tk) throw erro('x', 'Digite sua senha e cole a chave do site.');
+      const st = siteAtual(), codigo = await ativarAprovacao(s, tk, st.dono, st.repo);
+      el.querySelector('#nvAs').value = el.querySelector('#nvAt').value = '';
+      await new Promise(res => {
+        tela(`<h2>Pronto</h2><p class="travaSub">"Criar conta" e "Esqueci a senha" estão ativos. <b>Seu código de recuperação</b> (anote e guarde: é o único jeito de recuperar a sua conta se esquecer a senha):</p>
+          <div class="nvCodigo">${escH(codigo)}</div><div class="travaRec nvForm"><button type="button" class="btn primary">Anotei</button></div>`);
+        q('button').onclick = res;
+      });
+      fecharTela(); renderAjustes(el, modo);
+    });
+  }
+  // repositório do site, pelo endereço: usuario.github.io/Repositorio/
+  function siteAtual() {
+    const m = /^([a-z0-9-]+)\.github\.io$/i.exec(raiz.location.hostname || ''), r = (raiz.location.pathname || '').split('/').filter(Boolean)[0];
+    return { dono: m ? m[1] : (S.dono || ''), repo: r || 'Controle-Gastos' };
   }
   const toastM = m => { if (typeof raiz.toast === 'function') raiz.toast(m); };
   const toastE = e => { console.error(e); toastM(e.msg || e.message || 'Não deu certo'); };
@@ -634,7 +903,8 @@
     get aberto() { return _aberto; },
     _fetch: null,
     // só para os testes automáticos
-    _t: { S, kv, selar, abrirSelado, mesclar, conteudoLocal, resolver, criarCofre, abrirCofre, kekDoCofre, conectar, usar, GH, b64url, unb64url, lerUltimo, idConta, criarConta, abrirConta, lerConta, entrar },
+    _t: { S, kv, selar, abrirSelado, mesclar, conteudoLocal, resolver, criarCofre, abrirCofre, kekDoCofre, conectar, usar, GH, b64url, unb64url, lerUltimo, idConta, criarConta, abrirConta, lerConta, entrar,
+      pedidoConta, pedidoSenha, aprovarPedido, ativarAprovacao, trocarSenhaAdmin, pedidoTrocaSenha, linkPedido, lerPedidoDoLink },
   };
   raiz.Nuvem = Nuvem;
   if (typeof module !== 'undefined' && module.exports) module.exports = Nuvem;
