@@ -565,8 +565,17 @@
 
   function registrarSW() {
     try {
-      if (raiz.navigator && raiz.navigator.serviceWorker && raiz.location.protocol === 'https:')
-        raiz.navigator.serviceWorker.register('sw.js').catch(e => console.error('sw', e));
+      const sw = raiz.navigator && raiz.navigator.serviceWorker;
+      if (sw && raiz.location.protocol === 'https:') {
+        // versão nova publicada: o service worker novo assume e a página recarrega uma vez (se nenhuma janela estiver aberta)
+        const tinha = !!sw.controller;
+        sw.addEventListener('controllerchange', () => {
+          if (!tinha || raiz.__cgRecarregou) return;
+          if (raiz.document.querySelector('.ov.show')) return;
+          raiz.__cgRecarregou = true; raiz.location.reload();
+        });
+        sw.register('sw.js').then(reg => reg.update()).catch(e => console.error('sw', e));
+      }
     } catch (_) {}
   }
 
