@@ -177,6 +177,8 @@
     const caixa = await cifrar(kpin, enc.encode(JSON.stringify(dentro)));
     await kv.set('aparelho', { v: 1, dono: dados.dono, repo: dados.repo, pin: { salt: b64(salt), iter: ITER_PIN, n: pin.length }, caixa, em: Date.now() });
     await kv.set('erros', 0);
+    // pede ao navegador para não apagar estes dados quando faltar espaço (assim só o PIN é pedido nas próximas vezes)
+    try { if (raiz.navigator && raiz.navigator.storage && raiz.navigator.storage.persist) await raiz.navigator.storage.persist(); } catch (_) {}
   }
   async function abrirAparelho(ap, pin) {
     const kpin = await pbkdf2(pin, unb64(ap.pin.salt), ap.pin.iter);
@@ -409,8 +411,15 @@
     }
   }
 
-  function lerUltimo() { try { return JSON.parse(raiz.localStorage.getItem('cg_nv_ultimo') || '{}'); } catch (_) { return {}; } }
-  // formulário de entrada. o: {convite, aviso, titulo, botao, cancelar}
+  // último cofre usado neste aparelho; sem ele, no GitHub Pages o dono vem do endereço (usuario.github.io)
+  function lerUltimo() {
+    let u = {}; try { u = JSON.parse(raiz.localStorage.getItem('cg_nv_ultimo') || '{}'); } catch (_) {}
+    const m = /^([a-z0-9-]+)\.github\.io$/i.exec(raiz.location.hostname || '');
+    if (!u.dono && m) u = { dono: m[1], repo: 'controle-gastos-dados' };
+    return u;
+  }
+  // formulário de entrada. o: {convite, acesso, aviso, titulo, botao, cancelar}
+  // acesso = arquivo de acesso do site (acesso.json): só a senha do cofre; "outra conta" abre o formulário completo
   function telaSenha(o = {}) {
     return new Promise(res => {
       const u = o.convite ? { dono: o.convite.d, repo: o.convite.r } : lerUltimo();
@@ -418,6 +427,7 @@
       const desenhar = () => {
         tela(`<h2>${escH(o.titulo || (criar ? 'Criar o cofre' : 'Entrar'))}</h2>
           <p class="travaSub">${escH(criar ? 'Este repositório ainda não tem dados. Escolha a senha do cofre: ela tranca tudo e NÃO pode ser recuperada.'
+            : o.acesso ? 'Digite a senha do cofre. Nas próximas vezes, neste aparelho, só o PIN.'
             : o.convite ? `Conectando este aparelho ao cofre ${o.convite.d}/${o.convite.r}. Digite a senha do cofre.`
             : 'Seus dados ficam num repositório privado do GitHub, criptografados com a senha do cofre.')}</p>
           <form class="travaRec nvForm" autocomplete="off">
@@ -431,9 +441,10 @@
             <div class="travaErro" role="alert">${escH(o.aviso || '')}</div>
             <button type="submit" class="btn primary">${escH(o.botao || (criar ? 'Criar cofre e entrar' : 'Entrar'))}</button>
           </form>
-          <div class="travaRodape">${o.cancelar ? '<button type="button" class="linkish" data-acao="cancelar">Cancelar</button>' : ''}</div>`);
+          <div class="travaRodape">${o.cancelar ? '<button type="button" class="linkish" data-acao="cancelar">Cancelar</button>' : ''}${o.acesso ? '<button type="button" class="linkish" data-acao="outra">Entrar com outra conta do GitHub</button>' : ''}</div>`);
         const f = q('form');
         const cancel = q('[data-acao="cancelar"]'); if (cancel) cancel.onclick = () => { fecharTela(); res(null); };
+        const outra = q('[data-acao="outra"]'); if (outra) outra.onclick = () => res('outra');
         setTimeout(() => { try { (f.querySelector('input:not([value]),input[value=""]') || f.senha).focus(); } catch (_) {} }, 60);
         f.onsubmit = async e => {
           e.preventDefault();
@@ -450,7 +461,8 @@
           } catch (err) {
             if (err.code === 'sem_cofre') { criar = true; u.dono = d.dono; u.repo = d.repo; token = d.token; desenhar(); return; }
             bt.disabled = false; bt.textContent = o.botao || (criar ? 'Criar cofre e entrar' : 'Entrar');
-            msgErro(err.msg || err.message || 'Não consegui conectar.');
+            msgErro((err.msg || err.message || 'Não consegui conectar.') + (o.acesso && err.code === 'token'
+              ? ' O arquivo de acesso do site está desatualizado: entre com outra conta (abaixo) e gere um novo em Ajustes › Nuvem.' : ''));
             if (err.code === 'senha') { f.senha.value = ''; f.senha.focus(); await espera(800); }
           }
         };
@@ -476,12 +488,24 @@
     try { raiz.history.replaceState(null, '', raiz.location.pathname + raiz.location.search); } catch (_) {}
     try { const c = JSON.parse(unb64url(m[1])); return c && c.d && c.r && c.s && c.c ? c : null; } catch (_) { return null; }
   }
-  async function criarConvite(senha) {
+  // convite: {d: dono, r: repo, s/i: sal e voltas do cofre, c: chave do GitHub cifrada pela senha do cofre}
+  async function convite(senha) {
     const txt = await S.gh.ler('cofre.json'); const cofre = JSON.parse(txt);
     const kek = await kekDoCofre(cofre, senha);
     await abrirCofre(cofre, kek);   // confere a senha
-    const c = { d: S.dono, r: S.repo, s: cofre.kdf.salt, i: cofre.kdf.iter, c: await cifrar(kek, enc.encode(S.gh.token)) };
-    return raiz.location.origin + raiz.location.pathname + '#conectar=' + b64url(JSON.stringify(c));
+    return { d: S.dono, r: S.repo, s: cofre.kdf.salt, i: cofre.kdf.iter, c: await cifrar(kek, enc.encode(S.gh.token)) };
+  }
+  async function criarConvite(senha) {
+    return raiz.location.origin + raiz.location.pathname + '#conectar=' + b64url(JSON.stringify(await convite(senha)));
+  }
+  // arquivo de acesso publicado junto com o app (acesso.json): o mesmo convite, para entrar em aparelho novo só com a senha
+  async function lerAcessoPublico() {
+    try {
+      const r = await raiz.fetch('acesso.json', { cache: 'no-store' });
+      if (!r.ok) return null;
+      const c = await r.json();
+      return c && c.d && c.r && c.s && c.i && c.c && c.c.iv && c.c.ct ? c : null;
+    } catch (_) { return null; }
   }
 
   /* ------------------------------------------------------------------ abrir o app */
@@ -499,7 +523,10 @@
         if (!r) { ap = null; continue; }
         c = { gh: GH({ dono: r.dono, repo: r.repo, token: r.token }), dekRaw: r.dekRaw };
       } else {
-        c = await telaSenha({ convite, aviso });
+        // aparelho novo: com o arquivo de acesso do site, só a senha do cofre; sem ele (ou "outra conta"), o formulário completo
+        const acesso = convite ? null : await lerAcessoPublico();
+        c = acesso ? await telaSenha({ convite: acesso, acesso: true, aviso }) : null;
+        if (!c || c === 'outra') c = await telaSenha({ convite, aviso });
         aviso = '';
         const pin = await telaCriarPin(c.novo ? 'Cofre criado. Agora um PIN para este aparelho: nas próximas vezes você só digita o PIN.' : null);
         tela('<h2>Guardando…</h2><p class="travaSub">Trancando o acesso neste aparelho com o PIN</p>');
@@ -628,6 +655,9 @@
         <button class="btn" data-nv="pin">Trocar PIN deste aparelho</button>
       </div>
       <div id="nvQr"></div>
+      <details class="nvAjuda"><summary>Entrar em aparelho novo só com a senha (arquivo de acesso)</summary>
+        Gera o <b>acesso.json</b>: a chave do GitHub trancada pela senha do cofre, publicada junto com o app. Com ele, um aparelho novo pede só a senha do cofre (depois, só o PIN). Gere de novo se trocar a senha ou a chave.
+        <form class="frow" style="align-items:flex-end" id="nvAcForm"><div class="f"><label>Senha do cofre<input type="password" id="nvAcS" autocomplete="current-password"></label></div><button class="btn" type="submit">Gerar acesso.json</button></form></details>
       <details class="nvAjuda"><summary>Trocar a senha do cofre</summary>
         <div class="frow"><div class="f"><label>Senha atual<input type="password" id="nvSa" autocomplete="current-password"></label></div>
         <div class="f"><label>Nova senha (mín. ${MIN_SENHA})<input type="password" id="nvSn" autocomplete="new-password"></label></div>
@@ -645,6 +675,19 @@
       const fq = box.querySelector('form'); setTimeout(() => box.querySelector('#nvQs').focus(), 50);
       fq.onsubmit = ev => { ev.preventDefault(); gerarQr(box, box.querySelector('#nvQs').value).catch(err => toastE(err)); };
     });
+    const fa = el.querySelector('#nvAcForm');
+    if (fa) fa.onsubmit = ev => {
+      ev.preventDefault();
+      (async () => {
+        const s = el.querySelector('#nvAcS').value; if (!s) return;
+        const c = await convite(s);
+        const a = raiz.document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([JSON.stringify(c)], { type: 'application/json' }));
+        a.download = 'acesso.json'; raiz.document.body.appendChild(a); a.click(); a.remove();
+        el.querySelector('#nvAcS').value = '';
+        toastM('acesso.json gerado: coloque-o na pasta do app e publique junto com o código');
+      })().catch(err => toastE(err));
+    };
     async function gerarQr(box, senha) {
       if (!senha) return;
       const link = await criarConvite(senha);
@@ -704,7 +747,7 @@
     get aberto() { return _aberto; },
     _fetch: null,
     // só para os testes automáticos
-    _t: { S, kv, selar, abrirSelado, mesclar, conteudoLocal, resolver, criarCofre, abrirCofre, kekDoCofre, conectar, usar, guardarAparelho, abrirAparelho, GH, b64url, unb64url, trocarSenha, criarConvite },
+    _t: { S, kv, selar, abrirSelado, mesclar, conteudoLocal, resolver, criarCofre, abrirCofre, kekDoCofre, conectar, usar, guardarAparelho, abrirAparelho, GH, b64url, unb64url, trocarSenha, criarConvite, convite, lerAcessoPublico, lerUltimo },
   };
   raiz.Nuvem = Nuvem;
   if (typeof module !== 'undefined' && module.exports) module.exports = Nuvem;
