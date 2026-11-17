@@ -16,6 +16,7 @@
 <script src="regras.js?v=c41ccdbeb9"></script>
 <script src="dinheiro.js?v=ed7894e870"></script>
 <script src="qrcode.js?v=06e384f414"></script>
+<script src="relatorio.js?v=7606a81d16"></script>
 <!-- modo nuvem (GitHub Pages + repositório privado, dados criptografados): só liga em *.github.io ou com ?nuvem=1 -->
 <script src="nuvem.js?v=535683642a"></script>
 <link rel="manifest" href="manifest.webmanifest">
@@ -1312,6 +1313,20 @@ details.fatList[open]>*:not(summary){animation:secaoAbre var(--t-medio) var(--ea
   .fab{bottom:calc(84px + env(safe-area-inset-bottom))!important}
   body[data-v="painel"] .fab{display:none!important}   /* no painel os atalhos redondos já lançam */
 }
+
+/* relatório em PDF */
+.relPre{display:flex;flex-wrap:wrap;margin:4px 0 12px}
+#relAviso .relAviso{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+#relAviso .relTx{flex:1 1 220px;min-width:0}
+#relAviso .relBt{display:flex;gap:8px;flex-wrap:wrap}
+body:not([data-v="painel"]) #relAviso{display:none}
+@media (max-width:700px){
+  .topbar .relTop{display:none!important}   /* no celular o relatório é um dos atalhos redondos */
+  .mAcoes{gap:0!important;justify-content:space-around!important}
+  .mAc{flex:1 1 0;min-width:0;font-size:12.5px!important;text-align:center}
+  .mAc i{width:52px!important;height:52px!important}
+  #relAviso .relAviso{margin:0 16px 12px}
+}
 </style>
 </head>
 <body>
@@ -1347,6 +1362,7 @@ details.fatList[open]>*:not(summary){animation:secaoAbre var(--t-medio) var(--ea
     </div>
     <h1 id="pgTitle">Visão geral</h1>
     <span style="flex:1"></span>
+    <button type="button" class="btn icon sino relTop" onclick="abrirRelatorio()" aria-label="Relatório em PDF" title="Relatório em PDF (escolha o período)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M12 11v6M9.5 14.5 12 17l2.5-2.5"/></svg></button>
     <button type="button" class="btn icon sino olho" id="olhoBtn" onclick="toggleOcultar()" aria-pressed="false" aria-label="Ocultar valores" title="Ocultar valores (para tirar print)"></button>
     <button type="button" class="btn icon sino" id="sinoBtn" onclick="abrirAlertas()" aria-label="Alertas">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
@@ -1367,6 +1383,7 @@ details.fatList[open]>*:not(summary){animation:secaoAbre var(--t-medio) var(--ea
 
   <div id="banner" class="banner"></div>
   <div id="alerts"></div>
+  <div id="relAviso" hidden></div>
   <div id="loading" class="loading">Carregando seus dados…</div>
 
   <!-- PAINEL -->
@@ -1415,6 +1432,7 @@ details.fatList[open]>*:not(summary){animation:secaoAbre var(--t-medio) var(--ea
             <button type="button" class="mAc mAcPri" onclick="openTx('despesa')"><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg></i>Gasto</button>
             <button type="button" class="mAc" onclick="openTx('receita')"><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></i>Receita</button>
             <button type="button" class="mAc" onclick="openTx('despesa',null,state.config?.cards?.[0]?.id)"><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 10h19M6 15h4"/></svg></i>No cartão</button>
+            <button type="button" class="mAc" onclick="abrirRelatorio()"><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M12 11v6M9.5 14.5 12 17l2.5-2.5"/></svg></i>Relatório</button>
             <button type="button" class="mAc" onclick="openSaldo()"><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l4-4 4 4M16 15l-4 4-4-4"/></svg></i>Ajustar</button>
           </div>
           <div class="mResumo" role="button" tabindex="0" onclick="detMes(state.month,'all')" onkeydown="if(event.key==='Enter')this.click()">
@@ -1985,6 +2003,21 @@ details.fatList[open]>*:not(summary){animation:secaoAbre var(--t-medio) var(--ea
   <div class="mfoot"><button type="button" class="btn" onclick="closeOv('ovDin')">Fechar</button><button type="submit" class="btn primary">Depositei</button></div>
 </form></div>
 
+<!-- Modal relatório em PDF: escolhe o período e baixa o arquivo (gerado no próprio aparelho) -->
+<div class="ov" id="ovRel"><form class="modal" style="max-width:480px" onsubmit="gerarRelatorio();return false">
+  <h2>Relatório em PDF</h2>
+  <p class="small" style="margin-top:-8px">Extrato, onde mais gastou, onde dá para economizar, como investir o que sobrou e outros números do período.</p>
+  <div class="seg relPre" id="relPre">
+    <button type="button" data-p="mes" onclick="relPreset('mes')">Este mês</button><button type="button" data-p="ant" onclick="relPreset('ant')">Mês passado</button><button type="button" data-p="3m" onclick="relPreset('3m')">3 meses</button><button type="button" data-p="12m" onclick="relPreset('12m')">12 meses</button><button type="button" data-p="ano" onclick="relPreset('ano')">Este ano</button>
+  </div>
+  <div class="frow">
+    <div class="f"><label for="relIni">De</label><input id="relIni" type="date" required oninput="relPreset('')"></div>
+    <div class="f"><label for="relFim">Até</label><input id="relFim" type="date" required oninput="relPreset('')"></div>
+  </div>
+  <div class="small" id="relInfo" aria-live="polite"></div>
+  <div class="mfoot"><button type="button" class="btn" onclick="closeOv('ovRel')">Cancelar</button><button type="submit" class="btn primary" id="relGo">Gerar PDF</button></div>
+</form></div>
+
 <!-- Modal detalhamento (clique nos gráficos) -->
 <div class="ov" id="ovDet"><div class="modal" style="max-width:680px">
   <h2 id="detTitle"></h2>
@@ -2090,6 +2123,7 @@ const IC = {
   warn: _sv('<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>'),
   bell: _sv('<path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>'),
   cash: _sv('<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/>'),
+  doc: _sv('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>'),
 };
 const DOBRA_ICO = {
   nuvem: _sv('<path d="M17.5 19a4.5 4.5 0 1 0-1.4-8.8A6 6 0 0 0 4.5 12.5 3.5 3.5 0 0 0 6 19z"/><path d="M12 12v5M9.5 14.5 12 12l2.5 2.5"/>'),
@@ -3151,7 +3185,7 @@ function renderNow(){
   route();
   // cada parte da tela é desenhada separadamente: um erro numa delas não apaga as outras (e é avisado, não escondido)
   const falhas=[];
-  for(const [nome,fn] of [['Alertas',renderAlerts],['Painel',renderDash],['Lançamentos',renderTxList],['Receitas',renderReceitas],['Cartões',renderCards],['Caixinhas',renderCaixinhas],['Ajustes',renderAjustes]]){
+  for(const [nome,fn] of [['Alertas',renderAlerts],['Relatório',renderRelAviso],['Painel',renderDash],['Lançamentos',renderTxList],['Receitas',renderReceitas],['Cartões',renderCards],['Caixinhas',renderCaixinhas],['Ajustes',renderAjustes]]){
     try{ fn(); }catch(e){ console.error('Erro ao desenhar '+nome,e); falhas.push(nome); }
   }
   if(falhas.length) banner(`Não foi possível mostrar: ${falhas.join(', ')}. Seus dados não foram alterados; recarregue a página (Ctrl+F5). Detalhes no console do navegador.`);
@@ -3917,6 +3951,202 @@ function renderEconomia(){
   $('ecoList').innerHTML = !l.length ? '<div class="small">Ainda não há gastos suficientes para analisar. Lance suas compras do dia a dia (não só as faturas) que as dicas aparecem aqui.</div>'
     : (corte>0? `<div class="ecosum">Cortando 20% nas suas ${l.filter(x=>x.kind==='corte').length} maiores categorias ajustáveis: <b class="pos">${brl(corte)}/mês</b> · ${brl(corte*12)} por ano.</div>` : '')
       + l.map((x,i)=>`<div class="eco" onclick="ECON[${i}]()"><span class="ei" style="--ic:${(ECO_ICO[x.ico]||[])[1]||'var(--brand-2)'}">${(ECO_ICO[x.ico]||[])[0]||esc(x.ico)}</span><div><div class="et">${esc(x.t)}</div><div class="ed">${x.d}</div></div>${x.eco>0?`<div class="ev">economia<b>${brl(x.eco)}/mês</b></div>`:''}</div>`).join('');
+}
+
+/* ---------- relatório em PDF (relatorio.js desenha; aqui saem os números) ----------
+ * Período = datas [ini, fim]. Mesma base do painel: o dinheiro conta na data em que entra/sai da conta
+ * (compra no cartão = vencimento da fatura). "Maiores compras" e "onde comprei mais vezes" usam a data da compra. */
+const diasEntre = (a,b) => Math.round((new Date(b+'T00:00')-new Date(a+'T00:00'))/864e5);
+const fimMes = ym => `${ym}-${pad(dim(ym))}`;
+const mesInteiro = (ini,fim) => ini.slice(8)==='01' && fim===fimMes(fim.slice(0,7));
+const dBRl = d => d ? `${d.slice(8,10)}/${d.slice(5,7)}/${d.slice(0,4)}` : '';
+function rotuloPeriodo(ini,fim){
+  if(mesInteiro(ini,fim)){ const a=ini.slice(0,7), b=fim.slice(0,7);
+    if(a===b) return ymLabel(a,true);
+    if(a.slice(0,4)===b.slice(0,4)) return a.slice(5)==='01'&&b.slice(5)==='12' ? `Ano de ${a.slice(0,4)}` : `${MESES_L[+a.slice(5)-1][0].toUpperCase()+MESES_L[+a.slice(5)-1].slice(1)} a ${MESES_L[+b.slice(5)-1]} de ${b.slice(0,4)}`;
+    return `${ymLabel(a)} a ${ymLabel(b)}`; }
+  return ini===fim ? dBRl(ini) : `${dBRl(ini)} a ${dBRl(fim)}`;
+}
+function periodoAnterior(ini,fim){
+  if(mesInteiro(ini,fim)){ const n=(+fim.slice(0,4)-+ini.slice(0,4))*12+(+fim.slice(5,7)-+ini.slice(5,7))+1;
+    return [`${addM(ini.slice(0,7),-n)}-01`, fimMes(addM(fim.slice(0,7),-n))]; }
+  const n=diasEntre(ini,fim)+1; return [addD(ini,-n), addD(ini,-1)];
+}
+function dadosRelatorio(ini,fim){
+  const td=today(), dias=diasEntre(ini,fim)+1;
+  // "por mês": período de meses inteiros divide pelo número de meses; senão, pelos dias (30,44 por mês)
+  const meses = mesInteiro(ini,fim) ? (+fim.slice(0,4)-+ini.slice(0,4))*12+(+fim.slice(5,7)-+ini.slice(5,7))+1 : Math.max(1,dias/30.44);
+  const noP=(t,a,b)=>t.cash>=a&&t.cash<=b, it=E.filter(t=>noP(t,ini,fim));
+  const gasDe=l=>r2(l.reduce((s,t)=>s+gval(t),0));
+  const rec=it.filter(t=>t.tipo==='receita'), gas=it.filter(t=>t.tipo==='despesa');
+  const vRec=sum(rec), vGas=gasDe(gas), res=r2(vRec-vGas);
+  const [aIni,aFim]=periodoAnterior(ini,fim), ant=E.filter(t=>noP(t,aIni,aFim));
+  const antRec=sum(ant.filter(t=>t.tipo==='receita')), antGas=gasDe(ant.filter(t=>t.tipo==='despesa')), temAnt=ant.length>0;
+  const porCat=l=>{ const m={}; for(const t of l) if(t.tipo==='despesa') m[t.categoria||'Outros']=(m[t.categoria||'Outros']||0)+gval(t); return m; };
+  const cat=porCat(gas), catAnt=porCat(ant);
+  let ce=Object.entries(cat).filter(x=>x[1]>0.004).sort((a,b)=>b[1]-a[1]);
+  if(ce.length>12){ const resto=ce.slice(11).reduce((s,x)=>s+x[1],0); ce=ce.slice(0,11).concat([['Demais categorias',resto]]); }
+  const categorias=ce.map(([nome,v])=>({nome, v:r2(v), pct:vGas>0? v/vGas*100 : 0,
+    varAnt: temAnt && catAnt[nome]>0.004 ? (v/catAnt[nome]-1)*100 : null}));
+  const fm={}; for(const t of gas){ const k=formaLabel(t); fm[k]=(fm[k]||0)+gval(t); }
+  const formas=Object.entries(fm).filter(x=>x[1]>0.004).sort((a,b)=>b[1]-a[1]).map(([nome,v])=>({nome, v:r2(v), pct:vGas>0? v/vGas*100:0}));
+  // compras feitas no período (data da compra); parcelada = 1 linha com o total
+  const ate = fim<td? fim : td;
+  const compras=E.filter(t=>t.tipo==='despesa'&&!t.estorno&&!t.saldoInicial&&!t.importado&&!NAO_COMPRA.has(t.categoria)&&t.data>=ini&&t.data<=ate);
+  const g=new Map(); for(const t of compras){ const k=(t.grupo&&t.parcelas>1&&!t.recorrente)?'g:'+t.grupo:'t:'+t.id; if(!g.has(k)) g.set(k,{t,total:0}); g.get(k).total+=t.valor; }
+  const maiores=[...g.values()].sort((a,b)=>b.total-a.total).slice(0,10).map(({t,total})=>({data:dBR(t.data), desc:(t.descricao||t.categoria)+(t.parcelas>1&&!t.recorrente?` · ${t.parcelas}x`:''), cat:t.categoria, forma:formaLabel(t), v:r2(total)}));
+  const fq={}; for(const t of compras) if(!(t.parcelas>1)){ const k=descKey(t); (fq[k]=fq[k]||[]).push(t); }
+  const freqL=Object.values(fq).filter(l=>l.length>=2).sort((a,b)=>b.length-a.length||sumV(b)-sumV(a));
+  const frequentes=freqL.slice(0,8).map(l=>({desc:l[0].descricao||l[0].categoria, n:l.length, v:sumV(l)}));
+  // caixinhas e rendimentos
+  const sim = fim>fimMes(curYM()) ? cxSim(fim) : cxHoje(), antes=addD(ini,-1);
+  const caixinhas=sim.S.filter(s=>s.x.saldoRefData<=fim).map(s=>{ const mov=r2((s.x.movs||[]).filter(m=>m.data>=ini&&m.data<=fim&&m.data>=s.x.saldoRefData).reduce((a,m)=>a+m.valor,0));
+    return {nome:s.x.nome||'Caixinha', ini:cxSaldoEm(s,antes), fim:cxSaldoEm(s,fim), rend:cxRendPeriodo(s,ini,fim), mov}; });
+  const cxIni=r2(caixinhas.reduce((a,c)=>a+c.ini,0)), cxFim=r2(caixinhas.reduce((a,c)=>a+c.fim,0)), rendCx=r2(caixinhas.reduce((a,c)=>a+c.rend,0));
+  const rendConta = rendOn()? r2(rendAte(fim)-rendAte(antes)) : 0;
+  const saldoIni=balanceAt(antes), saldoFim=balanceAt(fim);
+  const din = temDinheiro()? dinSaldo(fim) : 0, dinIni = temDinheiro()? dinSaldo(antes) : 0;
+  const patrimonio=r2(saldoFim+cxFim+din), patrimonioVar=r2(patrimonio-(saldoIni+cxIni+dinIni));
+  const previstos=it.filter(t=>t.cash>td || !isDone(t));
+  const resumo={rec:vRec, gas:vGas, res, poupanca: vRec>0? res/vRec*100 : null, recAnt: temAnt? antRec : null, gasAnt:antGas,
+    varGas: temAnt && antGas>0.004 ? (vGas/antGas-1)*100 : null, saldoIni, saldoFim, cxIni, cxFim, rendConta, rendCx, rendTotal:r2(rendConta+rendCx),
+    din, patrimonio, patrimonioVar,
+    aviso: previstos.length? `Inclui ${previstos.length} lançamento${previstos.length>1?'s':''} previsto${previstos.length>1?'s':''} (${brl(r2(previstos.reduce((s,t)=>s+Math.abs(signed(t)),0)))}) ${previstos.length>1?'que ainda não aconteceram ou não foram confirmados':'que ainda não aconteceu ou não foi confirmado'}.` : null};
+  // gráfico: até 6 meses terminando no mês do fim
+  const fYM=fim.slice(0,7), mesesG=[...Array(6)].map((_,i)=>addM(fYM,i-5)).map(m=>({rotulo:ymLabel(m), ...monthTotals(m)}));
+  // destaques em uma linha
+  const destaques=[];
+  if(categorias[0]) destaques.push(`A categoria com mais gastos foi ${categorias[0].nome}: ${brl(categorias[0].v)} (${categorias[0].pct.toFixed(0)}% do total).`);
+  if(resumo.varGas!=null) destaques.push(`Você gastou ${brl(Math.abs(r2(vGas-antGas)))} ${vGas>=antGas?'a mais':'a menos'} que no período anterior (${rotuloPeriodo(aIni,aFim).replace(/^[A-Z]/,c=>c.toLowerCase())}).`);
+  if(vRec>0) destaques.push(res>=0? `Sobraram ${brl(res)}, ${(res/vRec*100).toFixed(0)}% do que entrou.` : `Faltaram ${brl(-res)}: os gastos passaram a receita em ${(-res/vRec*100).toFixed(0)}%.`);
+  if(maiores[0]) destaques.push(`Maior compra: ${maiores[0].desc} (${brl(maiores[0].v)} em ${maiores[0].data}).`);
+  // onde economizar (no período)
+  const eco=[], catC=Object.entries(cat).filter(([k])=>!NAO_COMPRA.has(k));
+  const corte=catC.filter(([k,v])=>DISCRIC.has(normTxt(k)) && !normTxt(k).includes('assinatura') && v/meses>=30).sort((a,b)=>b[1]-a[1]).slice(0,3);
+  const subiu=([k,v])=>{ const a=catAnt[k]||0; return temAnt && a>0.004 && v>a*1.3 && v-a>=50 ? a : 0; };
+  for(const [k,v] of corte){ const a=subiu([k,v]);
+    eco.push({t:`${k}: ${brl(v/meses)} por mês`, d:`${brl(v)} no período${a?`, ${((v/a-1)*100).toFixed(0)}% a mais que no anterior (${brl(a)})`:''}. Cortando 20%, você guarda ${brl(v/meses*.2)} por mês, ${brl(v/meses*.2*12)} em um ano.`, eco:r2(v/meses*.2), corte:true}); }
+  const jaCorte=new Set(corte.map(x=>x[0]));
+  if(temAnt) catC.filter(([k])=>!jaCorte.has(k)).map(([k,v])=>[k,v,catAnt[k]||0]).filter(([,v,a])=>a>0.004 && v>a*1.3 && v-a>=50).sort((x,y)=>(y[1]-y[2])-(x[1]-x[2])).slice(0,2)
+    .forEach(([k,v,a])=>eco.push({t:`${k} subiu ${((v/a-1)*100).toFixed(0)}%`, d:`${brl(v)} neste período contra ${brl(a)} no anterior. Voltar ao nível anterior economiza ${brl((v-a)/meses)} por mês.`, eco:r2((v-a)/meses), cor:'#d32f2f'}));
+  // compras repetidas que dá para espaçar (delivery, apps de transporte, lanches); combustível e mercado ficam de fora
+  freqL.filter(l=>l.length>=3&&sumV(l)>=40&&!/combustivel|mercado|veiculo|saude/.test(normTxt(l[0].categoria))).sort((a,b)=>sumV(b)-sumV(a)).slice(0,2).forEach(l=>{ const s=sumV(l);
+    eco.push({t:`${l[0].descricao||l[0].categoria}: ${l.length} compras`, d:`${brl(s)} no período, ${brl(s/l.length)} em média por vez. Comprando metade das vezes: ${brl(s/2/meses)} por mês.`, eco:r2(s/2/meses)}); });
+  const ass=gas.filter(t=>normTxt(t.categoria).includes('assinatura'));
+  if(ass.length){ const s=gasDe(ass); eco.push({t:`Assinaturas: ${brl(s/meses)} por mês`, d:`${ass.length} cobrança${ass.length>1?'s':''} no período (${brl(s/meses*12)} por ano). Cancele as que você quase não usa: cada R$ 30 por mês são R$ 360 por ano.`}); }
+  const noCartao=gas.filter(isCardTx), shareC=vGas>0? gasDe(noCartao)/vGas*100 : 0;
+  if(shareC>=60) eco.push({t:`${shareC.toFixed(0)}% dos gastos foram no cartão`, d:'No cartão o gasto só aparece na fatura e é fácil perder a conta. Defina um teto para cada fatura e acompanhe a fatura aberta no app.'});
+  const parcF=E.filter(t=>isCardTx(t)&&t.parcelas>1&&!t.recorrente&&t.cash>fim);
+  if(parcF.length){ const s=gasDe(parcF), ult=parcF.reduce((m,t)=>t.cashYM>m?t.cashYM:m,'');
+    eco.push({t:`${brl(s)} em parcelas ainda por vir`, d:`Compras parceladas que continuam até ${MESES_L[+ult.slice(5)-1]} de ${ult.slice(0,4)}. Evite parcelar coisas novas até liberar esse valor.`}); }
+  const dk={}; for(const t of gas) if(!(t.grupo&&t.parcela>1)){ const k=[t.data,t.valor,descKey(t),t.forma,t.cartaoId||'',!!t.estorno].join('|'); (dk[k]=dk[k]||[]).push(t); }
+  const dups=Object.values(dk).filter(l=>l.length>1);
+  if(dups.length) eco.push({t:`${dups.length} possível${dups.length>1?'is':''} lançamento${dups.length>1?'s':''} repetido${dups.length>1?'s':''}`, d:`${dups.slice(0,3).map(l=>`${l[0].descricao||l[0].categoria} em ${dBR(l[0].data)} (${l.length}x)`).join(', ')}. Confira no app: se for repetição, apague o lançamento a mais.`, cor:'#d32f2f'});
+  if(res<0){ const top=corte[0]; eco.unshift({t:`O período fechou ${brl(res)}`, d:`Para empatar, seria preciso cortar ${brl(-res)}${top?`; por exemplo em ${top[0]}, que somou ${brl(top[1])}`:''}.`, cor:'#d32f2f'}); }
+  const potencial=r2(eco.filter(e=>e.corte).reduce((s,e)=>s+e.eco,0));
+  // investir (educativo): reserva de 6 meses de gastos, simulação de aportes mensais rendendo % do CDI
+  const ult6=[...Array(6)].map((_,i)=>addM(fYM,-i)).map(monthTotals).filter(x=>x.gas>0);
+  const mediaGas=ult6.length? ult6.reduce((s,x)=>s+x.gas,0)/ult6.length : vGas/meses;
+  const reservaMeta=r2(mediaGas*6), reservaAtual=cxFim, reservaPct=reservaMeta>0? reservaAtual/reservaMeta*100 : 0;
+  const cdiAno=anual(cdiInfo().ultima), pctCdi=cxItens().length? (+cxCfg().pct||100) : (rendOn()? (+rendCfg().pct||100) : 100);
+  const taxaLiq=cdiAno*pctCdi/100*0.85, im=Math.pow(1+taxaLiq/100,1/12)-1;
+  const fv=(a,anos)=>{ const n=anos*12; return im>0? a*(Math.pow(1+im,n)-1)/im : a*n; };
+  const sobraMes=r2(res/meses), prazos=[1,3,5,10], cenarios=[];
+  const cen=(nome,a)=>{ if(a>=1) cenarios.push({nome, aporte:r2(a), valores:prazos.map(p=>r2(fv(a,p))), juros5:r2(fv(a,5)-a*60)}); };
+  cen(sobraMes>0?'Sobra do período':'Economia sugerida', sobraMes>0? sobraMes : potencial);
+  if(sobraMes>0 && potencial>=1) cen('Sobra + economia', sobraMes+potencial);
+  cen('Valor redondo', sobraMes>=150? 500 : 100);
+  const cartaoAtras=fatPendentes().some(x=>x.dueEf<td);
+  const passos=[
+    {t:'Pagar o que cobra juros alto', d:cartaoAtras? 'Há fatura de cartão vencida no app. Rotativo do cartão e cheque especial cobram muito mais do que qualquer investimento rende: quite isso primeiro.' : 'Sem fatura vencida no app. Continue pagando o cartão inteiro: o rotativo e o cheque especial custam bem mais do que qualquer investimento rende.', feito:!cartaoAtras},
+    {t:'Montar a reserva de emergência', d:`Meta: ${brl(reservaMeta)} (6 meses dos seus gastos). Você tem ${brl(reservaAtual)} nas caixinhas (${reservaPct.toFixed(0)}%). Para a reserva vale liquidez diária e baixo risco: caixinhas ou CDB com liquidez diária que rendam 100% do CDI ou mais, ou Tesouro Selic.${reservaPct<100&&sobraMes>0? ` Guardando ${brl(sobraMes)} por mês, você chega lá em cerca de ${Math.ceil((reservaMeta-reservaAtual)/sobraMes)} ${Math.ceil((reservaMeta-reservaAtual)/sobraMes)===1?'mês':'meses'}.`:''}`, feito:reservaPct>=100},
+    {t:'Objetivos de médio prazo (1 a 5 anos)', d:'Viagem, carro, entrada de imóvel: CDB, LCI e LCA (estas sem IR) com vencimento perto da data do objetivo, ou Tesouro Prefixado/IPCA+ com o mesmo prazo.'},
+    {t:'Longo prazo (mais de 5 anos)', d:'Aposentadoria e independência financeira: Tesouro IPCA+ e, conforme o seu perfil, uma parte em fundos de índice (ETFs) de ações, sempre diversificando e sem colocar tudo num só lugar.'},
+  ];
+  // outros números
+  const outros=[];
+  const diasPassados=Math.max(1,diasEntre(ini,ate)+1), totCompras=r2(compras.reduce((s,t)=>s+t.valor,0));
+  if(totCompras>0) outros.push({t:'Média de compras por dia', v:brl(totCompras/diasPassados), d:`${compras.length} compras e contas em ${diasPassados} dias`});
+  const porDia={}; for(const t of compras) porDia[t.data]=(porDia[t.data]||0)+t.valor;
+  const diaMax=Object.entries(porDia).sort((a,b)=>b[1]-a[1])[0];
+  if(diaMax) outros.push({t:'Dia em que mais gastei', v:brl(diaMax[1]), d:`${dBRl(diaMax[0])} (${DIAS_SEM[new Date(diaMax[0]+'T00:00').getDay()]})`});
+  const porSem=[0,0,0,0,0,0,0]; for(const t of compras) porSem[new Date(t.data+'T00:00').getDay()]+=t.valor;
+  const sm=porSem.indexOf(Math.max(...porSem)); if(totCompras>0) outros.push({t:'Dia da semana mais caro', v:DIAS_SEM[sm][0].toUpperCase()+DIAS_SEM[sm].slice(1), d:`${brl(porSem[sm])} no período (${(porSem[sm]/totCompras*100).toFixed(0)}% das compras)`});
+  if(vGas>0) outros.push({t:'Pago no cartão', v:`${shareC.toFixed(0)}% dos gastos`, d:`${brl(gasDe(noCartao))} de ${brl(vGas)}`});
+  const recCats={}; for(const t of rec) recCats[t.categoria]=(recCats[t.categoria]||0)+t.valor; const rc=Object.entries(recCats).sort((a,b)=>b[1]-a[1])[0];
+  if(rc) outros.push({t:'Principal fonte de receita', v:rc[0], d:`${brl(rc[1])} (${vRec>0?(rc[1]/vRec*100).toFixed(0):0}% das receitas)`});
+  outros.push({t:'Média de gastos por mês', v:brl(mediaGas), d:`nos últimos ${ult6.length||1} meses com gastos até ${ymLabel(fYM)}`});
+  const faturas=[]; for(const c of state.config.cards){ const f=faturasOf(c.id); for(const [ym,v] of Object.entries(f)) if(v.dueEf>=ini&&v.dueEf<=fim&&Math.abs(v.total)>0.004) faturas.push({cartao:c.nome, venc:dBR(v.dueEf), v:v.total, status:fatStatus(c,ym,v.total)[1], o:v.dueEf}); }
+  faturas.sort((a,b)=>a.o.localeCompare(b.o));
+  const futuro=[1,2,3].map(i=>addM(fYM,i)).map(m=>{ const l=E.filter(t=>t.tipo==='despesa'&&t.cashYM===m); return {rotulo:ymLabel(m,true), v:gasDe(l), parc:gasDe(l.filter(t=>isCardTx(t)&&t.parcelas>1&&!t.recorrente))}; });
+  const pendentes=E.filter(t=>!isCardTx(t)&&t.pago===false&&t.data<=fim).sort((a,b)=>a.data.localeCompare(b.data)).slice(0,30)
+    .map(t=>({data:dBR(t.data), desc:t.descricao||t.categoria, tipo:(t.tipo==='receita'?'A receber':'A pagar')+(t.data<td?' · atrasado':''), atrasado:t.data<td, receita:t.tipo==='receita', v:t.valor}));
+  // extrato = tudo o que foi lançado no período pela data da compra/conta (compra parcelada = 1 linha com o total);
+  // compras no cartão mostram quando saem da conta (vencimento da fatura)
+  const ex=new Map(); for(const t of E) if(t.data>=ini&&t.data<=fim){ const k=(t.grupo&&t.parcelas>1&&!t.recorrente)?'g:'+t.grupo:'t:'+t.id;
+    if(!ex.has(k)) ex.set(k,{t, v:0, n:0}); const x=ex.get(k); x.v+=signed(t); x.n++; if((t.parcela||1)<(x.t.parcela||1)) x.t=t; }
+  const extrato=[...ex.values()].sort((a,b)=>a.t.data.localeCompare(b.t.data)||(a.t.tipo==='receita'?-1:1)).map(({t,v,n})=>({
+    data:dBR(t.data), desc:t.descricao||t.categoria, cat:t.categoria||'', forma:formaLabel(t), v:r2(v), previsto: t.data>td || (!isCardTx(t) && t.pago===false),
+    obs:[n>1? `${n}x de ${brl(t.valor)}` : t.recorrente&&t.parcelas>1? `mensal ${t.parcela}/${t.parcelas}` : '', isCardTx(t)? `fatura ${dBR(t.cash)}`:'', t.estorno?'estorno':''].filter(Boolean).join(' · ') }));
+  const exE=r2(extrato.filter(x=>x.v>0).reduce((s,x)=>s+x.v,0)), exS=r2(-extrato.filter(x=>x.v<0).reduce((s,x)=>s+x.v,0));
+  return { titulo:'Relatório financeiro', periodo:{ini, fim, rotulo:rotuloPeriodo(ini,fim)},
+    geradoEm:`${dBRl(today())} às ${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`, nome:(TRAVA&&TRAVA.nome)||'',
+    resumo, meses:mesesG, destaques, categorias, formas, maiores, frequentes, economia:{itens:eco, potencial},
+    investir:{sobraMes, reservaMeta, reservaAtual, reservaPct, cdiAno, pctCdi, taxaLiq, prazos, cenarios, passos},
+    outros, faturas, futuro, pendentes, caixinhas, extrato, extratoTot:{ent:exE, sai:exS} };
+}
+// atalhos da tela "Relatório em PDF"
+function relPreset(k){
+  const cym=curYM(), td=today(); let a,b;
+  if(k==='mes'){ a=`${cym}-01`; b=td; } else if(k==='ant'){ const p=addM(cym,-1); a=`${p}-01`; b=fimMes(p); }
+  else if(k==='3m'){ a=`${addM(cym,-3)}-01`; b=fimMes(addM(cym,-1)); } else if(k==='ano'){ a=`${td.slice(0,4)}-01-01`; b=td; }
+  else if(k==='12m'){ a=`${addM(cym,-12)}-01`; b=fimMes(addM(cym,-1)); }
+  if(a){ $('relIni').value=a; $('relFim').value=b; }
+  document.querySelectorAll('#relPre button').forEach(x=>x.classList.toggle('on',x.dataset.p===k));
+  relInfo();
+}
+function relInfo(){
+  const a=$('relIni').value, b=$('relFim').value, i=$('relInfo'); if(!i) return;
+  if(!a||!b||a>b){ i.textContent='Escolha a data inicial e a final.'; return; }
+  const n=E.filter(t=>t.cash>=a&&t.cash<=b).length;
+  i.textContent=`${rotuloPeriodo(a,b)} · ${n} lançamento${n===1?'':'s'}`;
+}
+function abrirRelatorio(ym){
+  if(ym){ $('relIni').value=`${ym}-01`; $('relFim').value=fimMes(ym); document.querySelectorAll('#relPre button').forEach(x=>x.classList.toggle('on',x.dataset.p==='ant'&&ym===addM(curYM(),-1))); relInfo(); }
+  else relPreset(today().slice(8)<='05' ? 'ant' : 'mes');   // começo do mês: o mês que acabou de fechar
+  openOv('ovRel');
+}
+function baixarArquivo(bytes, nome, tipo){
+  const blob=new Blob([bytes],{type:tipo}), url=URL.createObjectURL(blob), a=document.createElement('a');
+  a.href=url; a.download=nome; a.rel='noopener'; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
+}
+async function gerarRelatorio(ini,fim){
+  ini=ini||$('relIni').value; fim=fim||$('relFim').value;
+  if(!ini||!fim||ini>fim){ toast('Escolha a data inicial e a final'); return; }
+  if(typeof Relatorio==='undefined'){ toast('Não foi possível carregar o gerador de PDF. Recarregue a página.'); return; }
+  const btn=$('relGo'); if(btn) btn.disabled=true;
+  try{
+    const bytes=Relatorio.pdf(dadosRelatorio(ini,fim));
+    const nome = mesInteiro(ini,fim)&&ini.slice(0,7)===fim.slice(0,7) ? `Relatorio-${ini.slice(0,7)}.pdf` : `Relatorio-${ini}_a_${fim}.pdf`;
+    baixarArquivo(bytes, nome, 'application/pdf');
+    if(mesInteiro(ini,fim) && fim.slice(0,7)===addM(curYM(),-1)) relVisto(fim.slice(0,7));
+    closeOv('ovRel'); toast('Relatório gerado: '+nome);
+  }catch(e){ console.error(e); toast('Não foi possível gerar o relatório: '+(e.message||e)); }
+  finally{ if(btn) btn.disabled=false; }
+}
+// fim do mês: no primeiro acesso do mês seguinte aparece o aviso "relatório de <mês> pronto" (um toque baixa o PDF)
+function relVisto(ym){ try{ localStorage.setItem('cg_relVisto', ym); }catch(_){} renderRelAviso(); }
+function renderRelAviso(){
+  const box=$('relAviso'); if(!box) return;
+  const pm=addM(curYM(),-1); let visto=''; try{ visto=localStorage.getItem('cg_relVisto')||''; }catch(_){}
+  const mostrar = visto<pm && E.some(t=>t.cashYM===pm);
+  box.hidden=!mostrar;
+  box.innerHTML = mostrar ? `<div class="card relAviso"><span class="h3i" style="--ic:var(--brand-2)">${IC.doc||IC.bell}</span>
+    <div class="relTx"><b>Seu relatório de ${MESES_L[+pm.slice(5)-1]} está pronto</b><div class="small">Extrato, onde mais gastou, onde dá para economizar e como investir o que sobrou.</div></div>
+    <div class="relBt"><button type="button" class="btn primary sm" onclick="gerarRelatorio('${pm}-01','${fimMes(pm)}')">Baixar PDF</button>
+    <button type="button" class="btn sm ghost" onclick="abrirRelatorio('${pm}')">Outro período</button>
+    <button type="button" class="btn sm ghost" aria-label="Dispensar aviso do relatório" onclick="relVisto('${pm}')">Agora não</button></div></div>` : '';
 }
 
 /* ---------- lançamentos ---------- */
