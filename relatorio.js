@@ -289,7 +289,7 @@
     secao('Como investir o que sobrar', 'Simulações com os seus números e a taxa do CDI que o app já usa. Conteúdo educativo: não é recomendação de investimento.');
     caixas([
       ['SOBRA POR MÊS', brl(iv.sobraMes), iv.sobraMes > 0 ? 'Média do período' : 'Sem sobra no período', iv.sobraMes > 0 ? C.bom : C.ruim],
-      ['RESERVA DE EMERGÊNCIA', pct(iv.reservaPct), `${brl(iv.reservaAtual)} de ${brl(iv.reservaMeta)} (6 meses de gastos)`, iv.reservaPct >= 100 ? C.bom : C.azul2],
+      ['RESERVA DE EMERGÊNCIA', pct(iv.reservaPct), `${brl(iv.reservaAtual)} de ${brl(iv.reservaMeta)} · ` + (iv.reservaFonte === 'manual' ? 'meta definida por você' : iv.reservaFonte === 'sugerida' ? 'meta sugerida pelo app' : 'estimativa: 6 meses de gastos'), iv.reservaPct >= 100 ? C.bom : C.azul2],
       ['CDI HOJE', pct(iv.cdiAno) + ' a.a.', `${iv.pctCdi}% do CDI ≈ ${pct(iv.taxaLiq)} a.a. líquido de IR`],
     ]);
     if (iv.cenarios.length) {

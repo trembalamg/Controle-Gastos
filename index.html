@@ -16,7 +16,7 @@
 <script src="regras.js?v=c41ccdbeb9"></script>
 <script src="dinheiro.js?v=ed7894e870"></script>
 <script src="qrcode.js?v=06e384f414"></script>
-<script src="relatorio.js?v=7606a81d16"></script>
+<script src="relatorio.js?v=3a4923bcf6"></script>
 <!-- modo nuvem (GitHub Pages + repositório privado, dados criptografados): só liga em *.github.io ou com ?nuvem=1 -->
 <script src="nuvem.js?v=535683642a"></script>
 <link rel="manifest" href="manifest.webmanifest">
@@ -1314,6 +1314,37 @@ details.fatList[open]>*:not(summary){animation:secaoAbre var(--t-medio) var(--ea
   body[data-v="painel"] .fab{display:none!important}   /* no painel os atalhos redondos já lançam */
 }
 
+/* metas das caixinhas */
+.cxMeta{margin-top:16px;padding:12px 16px;border-radius:12px;background:var(--surface-2);display:grid;gap:4px}
+.cxMeta.vazio{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.cxMeta.res{background:color-mix(in srgb,var(--good) 10%,var(--surface-2))}
+.cxMetaTop{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.cxMetaVal{font-size:15px}
+.mtBar{height:10px;border-radius:99px;background:var(--grid);overflow:hidden;margin:4px 0}
+.mtBar>i{display:block;height:100%;background:var(--brand-2);border-radius:99px;transition:width .26s ease}
+.mtBar.ok>i{background:var(--good)}
+.mtMini{font-size:12px;color:var(--muted)}
+.cxSug{margin-top:8px;padding:8px 12px;border-radius:8px;border:1px solid var(--brand-2);font-size:13px}
+.cxSugBt{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.cxMetaLinks{display:flex;gap:16px;flex-wrap:wrap}
+.cxMetaLinks .linkish,.mtLink{min-height:44px;text-align:left}
+.cc.cxRes{box-shadow:0 0 0 2px color-mix(in srgb,var(--good) 55%,transparent),var(--shadow)}
+.cxResCta{grid-column:1/-1;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+#ovMeta .mtSeg{display:flex;flex-wrap:wrap;width:100%}
+#ovMeta .mtSeg button{min-height:44px;flex:1 1 auto}
+.mtGrupo{border:0;padding:0;margin:0 0 12px;min-width:0}
+.mtGrupo legend{font-size:12.5px;font-weight:600;color:var(--text-2);margin-bottom:4px;padding:0}
+.mtCalc,.mtPrev{background:var(--surface-2);border-radius:8px;padding:8px 12px;margin:8px 0;font-size:13px;display:grid;gap:4px}
+.mtPrev:empty{display:none}
+.mtCalcL{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.mtCalcL.tot{border-top:1px solid var(--line);margin-top:4px;padding-top:4px}
+.mtCatsD{margin:4px 0 12px}
+.mtCatsD summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-weight:600;font-size:13px}
+.mtCats{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:0 8px;margin:4px 0}
+.mtCats label{display:flex;align-items:center;gap:8px;min-height:44px;font-size:13px}
+.mtAcoes{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+.mtAcoes:empty{display:none}
+
 /* relatório em PDF */
 .relPre{display:flex;flex-wrap:wrap;margin:4px 0 12px}
 #relAviso .relAviso{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
@@ -1655,7 +1686,7 @@ body:not([data-v="painel"]) #relAviso{display:none}
   <!-- CAIXINHAS -->
   <section id="v-caixinhas" class="view">
     <div class="pgHead"><div><h2>Caixinhas</h2><div class="small">Dinheiro guardado à parte. Não entra no saldo em conta; rende um percentual do CDI todo dia útil.</div></div>
-      <button class="btn primary" onclick="openCx('nova')">+ Nova caixinha</button></div>
+      <span style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="abrirReserva()">Reserva de emergência</button><button class="btn primary" onclick="openCx('nova')">+ Nova caixinha</button></span></div>
     <!-- resumo (mesmo padrão do painel) -->
     <div class="card heroBig pHero">
       <div class="ill" data-ill="piggy" aria-hidden="true"></div>
@@ -2001,6 +2032,37 @@ body:not([data-v="painel"]) #relAviso{display:none}
     <div class="f"><label>Data do depósito</label><input id="dinData" type="date"></div>
   </div>
   <div class="mfoot"><button type="button" class="btn" onclick="closeOv('ovDin')">Fechar</button><button type="submit" class="btn primary">Depositei</button></div>
+</form></div>
+
+<!-- Modal meta da caixinha / reserva de emergência (configurar a meta não move dinheiro) -->
+<div class="ov" id="ovMeta"><form class="modal" id="metaForm" style="max-width:560px" onsubmit="return false" novalidate>
+  <h2 id="mtTitle">Meta</h2>
+  <p class="small" id="mtSub" style="margin-top:-8px"></p>
+  <div class="f"><label for="mtCx">Caixinha</label><select id="mtCx"></select>
+    <button type="button" class="linkish mtLink" id="mtNovaCx" onclick="metaNovaCaixinha()">+ Criar uma caixinha nova para isso</button></div>
+  <label class="chk"><input type="checkbox" id="mtReserva"> <span>Esta caixinha é a minha reserva de emergência</span></label>
+  <div class="f"><label for="mtNome">Nome da meta (opcional)</label><input id="mtNome" maxlength="40" placeholder="ex.: Viagem de férias"></div>
+  <fieldset class="mtGrupo" id="mtModoF"><legend>Como definir o valor</legend>
+    <div class="seg mtSeg" data-k="modo"><button type="button" data-v="sugerida">Meta sugerida</button><button type="button" data-v="manual">Definir minha meta</button></div></fieldset>
+  <div id="mtSugF">
+    <fieldset class="mtGrupo"><legend>Quantos meses de gastos essenciais a reserva deve cobrir</legend>
+      <div class="seg mtSeg" data-k="cob"><button type="button" data-v="3">3</button><button type="button" data-v="6">6</button><button type="button" data-v="9">9</button><button type="button" data-v="12">12</button><button type="button" data-v="outro">Outro</button></div>
+      <div class="f" id="mtCobF" style="margin-top:8px"><label for="mtCob">Meses</label><input id="mtCob" type="number" min="1" max="60" inputmode="numeric"></div></fieldset>
+    <div class="mtCalc" id="mtCalc" aria-live="polite"></div>
+    <details class="mtCatsD"><summary>Categorias essenciais (<span id="mtCatsN"></span>)</summary>
+      <div class="small" id="mtCatsAviso">Sugestão inicial do app: revise e marque o que é essencial para você. A lista vale para a reserva toda.</div>
+      <div class="mtCats" id="mtCats"></div></details>
+    <div class="f"><label for="mtSugModo">Quando a média de gastos mudar</label><select id="mtSugModo"><option value="perguntar">Avisar e perguntar antes de mudar a meta</option><option value="nao">Não avisar (a meta só muda quando eu editar)</option></select></div>
+  </div>
+  <div class="f" id="mtValorF"><label for="mtValor">Valor da meta (R$)</label><input id="mtValor" inputmode="decimal" placeholder="ex.: 6.000"></div>
+  <fieldset class="mtGrupo"><legend>Prazo</legend>
+    <div class="seg mtSeg" data-k="prazo"><button type="button" data-v="data">Até uma data</button><button type="button" data-v="meses">Em X meses</button><button type="button" data-v="sem">Sem prazo</button></div>
+    <div class="f" id="mtDataF" style="margin-top:8px"><label for="mtData">Data final</label><input id="mtData" type="date"></div>
+    <div class="f" id="mtMesesF" style="margin-top:8px"><label for="mtMeses">Em quantos meses (contando este)</label><input id="mtMeses" type="number" min="1" max="600" inputmode="numeric"></div></fieldset>
+  <div class="f"><label for="mtContrib">Quanto quero guardar por mês (opcional, R$)</label><input id="mtContrib" inputmode="decimal" aria-describedby="mtContribD"><div class="small" id="mtContribD">É só um lembrete: nada é guardado sozinho.</div></div>
+  <div class="mtPrev" id="mtPrev" aria-live="polite"></div>
+  <div class="mtAcoes" id="mtAcoes"></div>
+  <div class="mfoot"><button type="button" class="btn" onclick="closeOv('ovMeta')">Cancelar</button><button type="submit" class="btn primary" id="mtOk">Salvar meta</button></div>
 </form></div>
 
 <!-- Modal relatório em PDF: escolhe o período e baixa o arquivo (gerado no próprio aparelho) -->
@@ -3221,6 +3283,8 @@ function renderDash(){
   $('kSaldoFoot').innerHTML=esc(`Base: ${brl(+state.config.saldoRef)} em ${dBR(state.config.saldoRefData)}`
     + (rendOn()? ` · rendimento ${rendCfg().pct||100}% CDI: +${brl(rendJaMes())} no mês` : ''))
     + (cxTot!=null? `<br><a href="#caixinhas" style="color:inherit">Caixinhas: <b class="num">${brl(cxTot)}</b> (fora do saldo) · conta + caixinhas: <b class="num">${brl(r2(saldo+cxTot))}</b></a>` : '')
+    + (()=>{ const r=cxReserva(); if(!r) return ''; const p=progressoMeta(r,td);   // resumo da reserva de emergência (as ações ficam na aba Caixinhas)
+        return `<br><a href="#caixinhas" style="color:inherit">Reserva de emergência: <b class="num">${brl(p.saldo)}</b> de ${brl(p.valor)} · ${pctBR(p.pct)}%${p.atingida?' · meta atingida':` · faltam ${brl(p.falta)}`} ›</a>`; })()
     + (temDinheiro()? `<br><button class="linkish" style="font-size:inherit" title="Ver o dinheiro físico e registrar depósito" onclick="openDin()"><span class="inIc">${IC.cash}</span> Dinheiro físico: <b class="num">${brl(dinSaldo(td))}</b> (fora da conta) ›</button>` : '');
   const endYM = ym<cym ? ym : ym; const prev=balanceAt(`${endYM}-${pad(dim(endYM))}`);
   $('kPrev').textContent=brl(prev); $('kPrev').className='val num '+(prev<0?'neg':'');
@@ -4047,7 +4111,11 @@ function dadosRelatorio(ini,fim){
   // investir (educativo): reserva de 6 meses de gastos, simulação de aportes mensais rendendo % do CDI
   const ult6=[...Array(6)].map((_,i)=>addM(fYM,-i)).map(monthTotals).filter(x=>x.gas>0);
   const mediaGas=ult6.length? ult6.reduce((s,x)=>s+x.gas,0)/ult6.length : vGas/meses;
-  const reservaMeta=r2(mediaGas*6), reservaAtual=cxFim, reservaPct=reservaMeta>0? reservaAtual/reservaMeta*100 : 0;
+  // reserva: se há caixinha marcada como reserva de emergência (com meta), usa a meta e o saldo DELA no fim do período;
+  // senão, estimativa de 6 meses de gastos sobre o total das caixinhas (como antes)
+  const rx=cxReserva(), rxS=rx? sim.by(rx.id) : null, temRx=!!(rx && +rx.meta.valor>0 && rxS);
+  const reservaMeta = temRx? r2(+rx.meta.valor) : r2(mediaGas*6), reservaAtual = temRx? cxSaldoEm(rxS,fim) : cxFim, reservaPct=reservaMeta>0? reservaAtual/reservaMeta*100 : 0;
+  const reservaFonte = temRx? (rx.meta.modo==='sugerida'? 'sugerida' : 'manual') : 'estimativa', reservaNome = temRx? rx.nome : '';
   const cdiAno=anual(cdiInfo().ultima), pctCdi=cxItens().length? (+cxCfg().pct||100) : (rendOn()? (+rendCfg().pct||100) : 100);
   const taxaLiq=cdiAno*pctCdi/100*0.85, im=Math.pow(1+taxaLiq/100,1/12)-1;
   const fv=(a,anos)=>{ const n=anos*12; return im>0? a*(Math.pow(1+im,n)-1)/im : a*n; };
@@ -4059,7 +4127,7 @@ function dadosRelatorio(ini,fim){
   const cartaoAtras=fatPendentes().some(x=>x.dueEf<td);
   const passos=[
     {t:'Pagar o que cobra juros alto', d:cartaoAtras? 'Há fatura de cartão vencida no app. Rotativo do cartão e cheque especial cobram muito mais do que qualquer investimento rende: quite isso primeiro.' : 'Sem fatura vencida no app. Continue pagando o cartão inteiro: o rotativo e o cheque especial custam bem mais do que qualquer investimento rende.', feito:!cartaoAtras},
-    {t:'Montar a reserva de emergência', d:`Meta: ${brl(reservaMeta)} (6 meses dos seus gastos). Você tem ${brl(reservaAtual)} nas caixinhas (${reservaPct.toFixed(0)}%). Para a reserva vale liquidez diária e baixo risco: caixinhas ou CDB com liquidez diária que rendam 100% do CDI ou mais, ou Tesouro Selic.${reservaPct<100&&sobraMes>0? ` Guardando ${brl(sobraMes)} por mês, você chega lá em cerca de ${Math.ceil((reservaMeta-reservaAtual)/sobraMes)} ${Math.ceil((reservaMeta-reservaAtual)/sobraMes)===1?'mês':'meses'}.`:''}`, feito:reservaPct>=100},
+    {t:'Montar a reserva de emergência', d:`${temRx? `Meta ${reservaFonte==='manual'?'definida por você':'sugerida pelo app'} na caixinha "${reservaNome}": ${brl(reservaMeta)}${rx.meta.mesesCobertura&&reservaFonte==='sugerida'?` (${rx.meta.mesesCobertura} meses de gastos essenciais)`:''}. No fim do período ela tinha ${brl(reservaAtual)} (${reservaPct.toFixed(0)}%)${reservaPct<100?`, faltando ${brl(r2(reservaMeta-reservaAtual))}`:''}.` : `Estimativa: ${brl(reservaMeta)} (6 meses dos seus gastos). Você tem ${brl(reservaAtual)} nas caixinhas (${reservaPct.toFixed(0)}%). Marque uma caixinha como reserva de emergência no app para acompanhar uma meta própria.`} Para a reserva vale liquidez diária e baixo risco: caixinhas ou CDB com liquidez diária que rendam 100% do CDI ou mais, ou Tesouro Selic.${reservaPct<100&&sobraMes>0? ` Guardando ${brl(sobraMes)} por mês, você chega lá em cerca de ${Math.ceil((reservaMeta-reservaAtual)/sobraMes)} ${Math.ceil((reservaMeta-reservaAtual)/sobraMes)===1?'mês':'meses'}.`:''}`, feito:reservaPct>=100},
     {t:'Objetivos de médio prazo (1 a 5 anos)', d:'Viagem, carro, entrada de imóvel: CDB, LCI e LCA (estas sem IR) com vencimento perto da data do objetivo, ou Tesouro Prefixado/IPCA+ com o mesmo prazo.'},
     {t:'Longo prazo (mais de 5 anos)', d:'Aposentadoria e independência financeira: Tesouro IPCA+ e, conforme o seu perfil, uma parte em fundos de índice (ETFs) de ações, sempre diversificando e sem colocar tudo num só lugar.'},
   ];
@@ -4092,7 +4160,7 @@ function dadosRelatorio(ini,fim){
   return { titulo:'Relatório financeiro', periodo:{ini, fim, rotulo:rotuloPeriodo(ini,fim)},
     geradoEm:`${dBRl(today())} às ${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`, nome:(TRAVA&&TRAVA.nome)||'',
     resumo, meses:mesesG, destaques, categorias, formas, maiores, frequentes, economia:{itens:eco, potencial},
-    investir:{sobraMes, reservaMeta, reservaAtual, reservaPct, cdiAno, pctCdi, taxaLiq, prazos, cenarios, passos},
+    investir:{sobraMes, reservaMeta, reservaAtual, reservaPct, reservaFonte, reservaNome, cdiAno, pctCdi, taxaLiq, prazos, cenarios, passos},
     outros, faturas, futuro, pendentes, caixinhas, extrato, extratoTot:{ent:exE, sai:exS} };
 }
 // atalhos da tela "Relatório em PDF"
@@ -4430,19 +4498,22 @@ function renderCaixinhas(){
   $('cxkUlt').textContent=brl(ult); $('cxkUltFoot').textContent='entrou hoje (do último dia útil)';
   $('cxkAll').textContent=brl(r2(conta+tot)); $('cxkAllFoot').textContent=`conta ${brl(conta)} + caixinhas ${brl(tot)}`;
   box.innerHTML = !it.length ? `<div class="card empty" style="grid-column:1/-1"><h2>Nenhuma caixinha</h2><p>Cadastre cada caixinha do Mercado Pago com o saldo de hoje. O valor fica fora do saldo em conta.</p><button class="btn primary" onclick="openCx('nova')">+ Nova caixinha</button></div>`
-    : it.map(x=>{ const s=H.by(x.id), saldo=cxSaldoEm(s,td), rm=cxRendPeriodo(s,ini,td), desde=cxCumEm(s,td);
+    : (cxReserva()? '' : `<div class="card cxResCta"><span class="h3i" style="--ic:var(--good)">${IC.lock}</span><div style="flex:1 1 220px"><b>Reserva de emergência</b><div class="small">Guarde de 3 a 12 meses dos seus gastos essenciais para imprevistos. O app sugere a meta pelos seus gastos e mostra quanto guardar por mês.</div></div><button type="button" class="btn primary" onclick="abrirReserva()">Criar reserva de emergência</button></div>`)
+    + [...it].sort((a,b)=>isReserva(b)-isReserva(a)).map(x=>{ const s=H.by(x.id), saldo=cxSaldoEm(s,td), rm=cxRendPeriodo(s,ini,td), desde=cxCumEm(s,td);
       const movs=[...(x.movs||[])].sort((a,b)=>b.data.localeCompare(a.data)||(b.em||'').localeCompare(a.em||''));
       const reais=Object.entries(x.reais||{}).sort((a,b)=>b[0].localeCompare(a[0]));
-      return `<div class="card cc"><div class="stripe" style="background:var(--good)"></div>
+      return `<div class="card cc${isReserva(x)?' cxRes':''}" id="cx-${x.id}"><div class="stripe" style="background:var(--good)"></div>
         <div class="row-h"><div><b style="font-size:16px">${esc(x.nome)}</b><div class="meta small">saldo base ${brl(+x.saldoRef)} em ${dBR(x.saldoRefData)}${x.origem?` · ${esc(x.origem)}`:''}</div>${cxTaxaTag(x,td)}</div>
           <span style="display:flex;gap:8px"><button class="btn sm" onclick="openCx('editar','${x.id}')">Editar</button><button class="btn sm ghost" title="Excluir caixinha" onclick="rmCx('${x.id}')">×</button></span></div>
         <div class="mt"><div class="small upper">Saldo hoje</div><div class="bigNum num ccPend">${moneyHTML(saldo)}</div>
           <div class="small">Rendeu no mês: <b class="num pos">${brl(rm)}</b> · desde ${dBR(x.saldoRefData)}: <b class="num">${brl(desde)}</b></div></div>
+        ${metaCardHTML(x,td)}
         <div class="mt" style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn sm primary" onclick="openCx('guardar','${x.id}')">Guardar</button>
           <button class="btn sm" onclick="openCx('resgatar','${x.id}')">Resgatar</button>
           <button class="btn sm" onclick="openCx('saldo','${x.id}')">Atualizar saldo</button>
-          <button class="btn sm ghost" onclick="openCx('real','${x.id}')">Lançar rendimento real</button></div>
+          <button class="btn sm ghost" onclick="openCx('real','${x.id}')">Lançar rendimento real</button>
+          ${metaAtiva(x)?`<button class="btn sm" onclick="abrirMeta('${x.id}')">${isReserva(x)?'Editar meta':'Meta'}</button>`:''}</div>
         ${movs.length?`<div class="mt small"><b>Movimentações</b></div><table><tbody>${movs.slice(0,8).map(m=>`<tr><td class="num small" style="width:70px">${dBR(m.data)}</td><td class="small">${m.valor>=0?'Guardou':'Resgatou'}${m.conta?(m.valor>=0?' · saiu da conta':' · voltou para a conta'):' · sem mexer na conta'}${m.data<x.saldoRefData?' <span class="pill" title="Antes do saldo base: já está dentro dele">antes da base</span>':''}</td><td class="r num ${m.valor>=0?'pos':''}">${m.valor>=0?'+':'−'} ${brl(Math.abs(m.valor)).replace('R$ ','')}</td><td class="r"><button class="linkish" title="remover" onclick="rmCxMov('${x.id}','${m.id}')">×</button></td></tr>`).join('')}</tbody></table>${movs.length>8?`<div class="small">+ ${movs.length-8} mais antigas</div>`:''}`:''}
         ${reais.length?`<div class="mt small"><b>Rendimentos reais informados</b></div><table><tbody>${reais.slice(0,6).map(([d,r])=>`<tr><td class="num small" style="width:70px">${dBR(d)}</td><td class="small">app ${brl(r2(r.bruto))} · saldo ${brl(r.base)}</td><td class="r num"><b>${brl(r.v)}</b></td><td class="r"><button class="linkish" title="remover" onclick="rmCxReal('${x.id}','${d}')">×</button></td></tr>`).join('')}</tbody></table>`:''}
       </div>`; }).join('');
@@ -4465,7 +4536,7 @@ function cxTaxaTag(x,td){
   const falta = t.ate? Math.round((new Date(t.ate+'T00:00')-new Date(td+'T00:00'))/864e5) : null;
   return `<div class="cxTaxa"><span class="tag ok">${pct}% do CDI${ate?` até ${ate}`:''}</span>${falta!=null?` <span class="small${falta<=7?' neg':''}">${falta===0?'último dia':`faltam ${falta} dia${falta>1?'s':''}`}</span>`:''} <span class="small">· fora do limite da regra geral</span></div>`;
 }
-let cxModo=null, cxId=null;
+let cxModo=null, cxId=null, cxDepois=null;   // cxDepois: o que fazer depois de criar (ex.: voltar para a meta)
 const CX_TELAS = {
   nova:{t:'Nova caixinha', sub:'O valor da caixinha fica fora do saldo em conta. Se você está guardando esse dinheiro agora, deixe marcado: ele sai do saldo da conta.', nome:1, valor:'Quanto tem na caixinha (R$)', data:'Data', conta:'Esse dinheiro saiu do saldo da conta (guardei agora)', ok:'Criar'},
   editar:{t:'Editar caixinha', nome:1, ok:'Salvar'},
@@ -4474,10 +4545,10 @@ const CX_TELAS = {
   resgatar:{t:'Resgatar da caixinha', valor:'Quanto resgatou (R$)', data:'Data', conta:'Voltou para o saldo em conta (soma no saldo da conta)', ok:'Resgatar'},
   real:{t:'Rendimento real', sub:'Copie do app do Mercado Pago quanto a caixinha rendeu. O valor substitui o cálculo naquele dia e ajusta os outros dias.', valor:'Rendeu (R$)', data:'Dinheiro parado no dia', ok:'Comparar e salvar'},
 };
-function openCx(modo,id){
+function openCx(modo,id,o){
   if(!state.config) return;
   const T=CX_TELAS[modo], x=id? cxById(id) : null; if(!T || (id&&!x)) return;
-  cxModo=modo; cxId=id||null;
+  cxModo=modo; cxId=id||null; cxDepois=(o&&o.depois)||null;
   $('cxTitle').textContent = T.t + (x&&modo!=='editar'? ` · ${x.nome}` : '');
   $('cxSub').textContent = T.sub||''; $('cxSub').style.display = T.sub? '' : 'none';
   $('cxNomeF').style.display = T.nome? '' : 'none'; $('cxNome').value = x? x.nome : '';
@@ -4524,9 +4595,10 @@ $('cxForm').addEventListener('submit',async()=>{
     // "saiu do saldo da conta": a caixinha começa em zero e o valor entra como uma "guardada" (desconta da conta nesse dia).
     // Desmarcado: o dinheiro já estava na caixinha antes (só registra o saldo, a conta não muda).
     const daConta=$('cxConta').checked && v>0;
-    if(await cxGravar(c=>{ c.itens.push({id:uid(), nome, saldoRef: daConta? 0 : r2(v), saldoRefData:d,
+    const nid=uid(), depois=cxDepois; cxDepois=null;
+    if(await cxGravar(c=>{ c.itens.push({id:nid, nome, saldoRef: daConta? 0 : r2(v), saldoRefData:d,
         movs: daConta? [{id:uid(), data:d, valor:r2(v), conta:true, em:new Date().toISOString()}] : [], reais:{}, criado:td, ...(taxa?{taxa}:{})}); }))
-      toast(daConta? `Caixinha "${nome}" criada: ${brl(v)} saiu do saldo da conta` : `Caixinha "${nome}" criada`);
+    { toast(daConta? `Caixinha "${nome}" criada: ${brl(v)} saiu do saldo da conta` : `Caixinha "${nome}" criada`); if(depois) setTimeout(()=>depois(nid),320); }
     return;
   }
   if(!x) return closeOv('ovCx');
@@ -4591,6 +4663,339 @@ async function salvarCxCfg(){
   if(isNaN(lim)||lim<0) return toast('Limite inválido (use 0 para sem limite)');
   if(await cxGravar(c=>{ c.pct=pct; c.limite=r2(lim); c.pctAcima=pa; c.auto=$('cxAuto').checked; })) toast('Regra das caixinhas salva');
 }
+
+/* ---------- metas das caixinhas e reserva de emergência (17/11/2026) ----------
+ * Tudo opcional e dentro de config.caixinhas (gravado com cxGravar → Store.saveConfig, nos 3 modos). Nada aqui movimenta dinheiro:
+ * o saldo da meta é SEMPRE o saldo calculado da caixinha (cxSim/cxSaldoEm); não existe saldo gravado.
+ *   item.meta = {ativa, tipo:'reserva_emergencia'|'comum', modo:'sugerida'|'manual', nome?, valor, mesesCobertura? (reserva),
+ *     prazoFinal:'AAAA-MM-DD'|null, semPrazo, contribuicaoMensal|null, criadaEm, saldoInicial, baseEm, baseSaldo (início da
+ *     trajetória esperada; muda quando valor/prazo mudam), atualizadaEm, pausada, concluida, concluidaEm?,
+ *     ultimaSugestao, sugestaoAtualizadaEm, mediaBase, sugestaoRecusada?, categoriasEssenciaisUsadas[]}
+ *   item.metaHist = [{em, tipo, de?, para?, motivo?}]   (criada, editada, sugestao_aplicada, sugestao_mantida, pausada,
+ *     retomada, concluida, reaberta, removida, virou_reserva, deixou_de_ser_reserva)
+ *   item.metaRemovida = última meta removida (para desfazer à mão, se precisar)
+ *   config.caixinhas.essenciais = [categorias de gasto essencial (texto)]   ausente = ESSENCIAIS_PADRAO que existirem
+ *   config.caixinhas.sugestao = 'perguntar' (padrão) | 'nao'               quando a média muda, avisa e pergunta / não avisa */
+const ESSENCIAIS_PADRAO = ['Moradia','Contas da casa','Mercado','Alimentação','Transporte','Combustível','Veículo','Saúde','Educação','Impostos e taxas','Seguros','Seguro'];
+const metaAtiva = x => !!(x && x.meta && x.meta.ativa!==false);
+const isReserva = x => metaAtiva(x) && x.meta.tipo==='reserva_emergencia';
+const cxReserva = () => cxItens().find(isReserva) || null;
+const metaNome = x => (x.meta && x.meta.nome) || (isReserva(x)? 'Reserva de emergência' : x.nome);
+function essenciais(){
+  const e=state.config.caixinhas?.essenciais; if(Array.isArray(e)) return e.slice();
+  const pad=new Set(ESSENCIAIS_PADRAO.map(normTxt)); return catsDeGasto().filter(c=>pad.has(normTxt(c)));
+}
+// categorias de gasto que podem ser marcadas (as da configuração + as usadas em lançamentos), sem faturas importadas e saldo anterior
+function catsDeGasto(){ const s=new Set(state.config.cats||[]); for(const t of E) if(t.tipo==='despesa' && t.categoria) s.add(t.categoria);
+  return [...s].filter(c=>!NAO_COMPRA.has(c)).sort((a,b)=>a.localeCompare(b,'pt-BR')); }
+const gastoContaNaMedia = t => t.tipo==='despesa' && !NAO_COMPRA.has(t.categoria) && !t.importado && !t.saldoInicial;
+// Gasto essencial médio por mês. Meses: os 3 últimos COMPLETOS (antes do mês de hoje), pelo mês em que o dinheiro sai da conta
+// (cashYM: compra no cartão conta UMA vez, no mês da fatura; o pagamento da fatura não é lançamento). Valor líquido (gval: estorno
+// desconta). Fora: receitas, NAO_COMPRA, importado, saldoInicial. Caixinhas, depósitos e rendimentos nem são lançamentos (tx).
+// Sem 3 meses completos com gastos: usa os que houver a partir do 1º mês com gasto (completo=false).
+function gastoEssencial(cats, td=today()){
+  cats = cats || essenciais(); const set=new Set(cats.map(normTxt)), cym=td.slice(0,7);
+  const prim=E.filter(gastoContaNaMedia).reduce((m,t)=>!m||t.cashYM<m? t.cashYM : m,'');
+  const meses=[3,2,1].map(i=>addM(cym,-i)).filter(m=>prim && m>=prim);
+  const porCat={}, porMes={}, itens=[]; let total=0;
+  for(const m of meses) porMes[m]=0;
+  for(const t of E) if(gastoContaNaMedia(t) && t.cashYM in porMes && set.has(normTxt(t.categoria))){
+    const v=gval(t); total+=v; porCat[t.categoria]=(porCat[t.categoria]||0)+v; porMes[t.cashYM]+=v; itens.push(t); }
+  for(const k in porCat) porCat[k]=r2(porCat[k]); for(const k in porMes) porMes[k]=r2(porMes[k]);
+  total=r2(total);
+  return {meses, cats, total, media: meses.length? r2(total/meses.length) : 0, porCat, porMes, itens, completo: meses.length===3, em:td};
+}
+function sugestaoReserva(mesesCob, cats, td){ const g=gastoEssencial(cats, td), n=Math.max(1, Math.round(+mesesCob||6)); return {...g, mesesCobertura:n, valor:r2(g.media*n)}; }
+// meses de contribuição até o prazo: conta o mês de hoje e o do prazo (17/11/2026 → 31/12/2027 = 14). Prazo já passou: 0. Sem prazo: null.
+function mesesAtePrazo(prazo, td=today()){ if(!prazo) return null; if(prazo<td) return 0;
+  return (+prazo.slice(0,4)-+td.slice(0,4))*12 + (+prazo.slice(5,7)-+td.slice(5,7)) + 1; }
+const prazoDeMeses = (n, td=today()) => fimMes(addM(td.slice(0,7), Math.max(1,Math.round(+n||1))-1));   // "em 12 meses" = fim do 12º mês contando o atual
+const ymLongo = ym => `${MESES_L[+ym.slice(5,7)-1]} de ${ym.slice(0,4)}`;
+function cxSaldoHoje(x, td=today()){ const H=td>fimMes(curYM())? cxSim(td) : cxHoje(), s=H.by(x.id); return s? cxSaldoEm(s,td) : 0; }
+// Progresso da meta (só leitura). Contribuições = guardadas (movs > 0), retiradas = resgates (movs < 0), rendimento = calculado/real:
+// tudo separado. "Atualizar saldo" muda o saldo base e NÃO conta como contribuição. Rendimento futuro não entra no "quanto guardar".
+function progressoMeta(x, td=today()){
+  if(!metaAtiva(x)) return null;
+  const m=x.meta, H=td>fimMes(curYM())? cxSim(td) : cxHoje(), s=H.by(x.id), cym=td.slice(0,7);
+  const saldo = s? cxSaldoEm(s,td) : 0, valor=r2(Math.max(0,+m.valor||0));
+  const falta=r2(Math.max(0,valor-saldo)), excedente=r2(Math.max(0,saldo-valor));
+  const pct = valor>0? saldo/valor*100 : (saldo>0? 100 : 0);
+  const atingida = valor>0 && saldo>=valor-0.004;
+  const prazo = m.semPrazo? null : (m.prazoFinal||null);
+  const mesesRest = mesesAtePrazo(prazo, td), vencido = prazo!=null && mesesRest===0;
+  const mensal = atingida? 0 : (prazo && mesesRest>0 ? r2(falta/mesesRest) : null);     // sem divisão por zero: vencido/sem prazo = null
+  const cenarios = !prazo && !atingida ? [3,6,12].map(n=>({meses:n, mensal:r2(falta/n)})) : [];
+  const desde = m.criadaEm || x.saldoRefData || td;
+  const mv = (x.movs||[]).filter(v=>v.data>=desde && v.data<=td);
+  const contrib = r2(mv.filter(v=>v.valor>0).reduce((a,v)=>a+v.valor,0)), retiradas = r2(-mv.filter(v=>v.valor<0).reduce((a,v)=>a+v.valor,0));
+  const rendimento = s? cxRendPeriodo(s, desde, td) : 0;
+  // ritmo: guardado líquido por mês nos últimos 3 meses (ou desde a criação da meta, se for mais recente)
+  const jIni=[desde, `${addM(cym,-2)}-01`].sort()[1];
+  const jNet=(x.movs||[]).filter(v=>v.data>=jIni && v.data<=td).reduce((a,v)=>a+v.valor,0);
+  const ritmo=r2(jNet/Math.max(1,(diasEntre(jIni,td)+1)/30.44));
+  const previsao = atingida? null : ritmo>0.004 ? addM(cym, Math.ceil(falta/ritmo)-1) : null;   // mês estimado de conclusão
+  const contribMes = r2((x.movs||[]).filter(v=>v.data.slice(0,7)===cym && v.data<=td).reduce((a,v)=>a+v.valor,0));
+  const planejado = +m.contribuicaoMensal>0 ? r2(+m.contribuicaoMensal) : null;
+  // trajetória esperada (linha reta do saldo da base até a meta no prazo): diz se está adiantada ou atrasada
+  let esperado=null;
+  if(prazo && !vencido){ const bE=m.baseEm||desde, bS=+(m.baseSaldo ?? m.saldoInicial ?? 0), tot=diasEntre(bE,prazo), el=Math.max(0,diasEntre(bE,td));
+    esperado = r2(tot>0? bS+(valor-bS)*Math.min(1,el/tot) : valor); }
+  let status;
+  if(m.pausada) status='pausada';
+  else if(m.concluida) status = atingida? 'concluida' : 'concluida_abaixo';
+  else if(atingida) status='atingida';
+  else if(!prazo) status='sem_prazo';
+  else if(vencido) status='vencida';
+  else { const tol=Math.max(1,(mensal||0)*0.25), d=saldo-esperado; status = d<-tol? 'atrasada' : d>tol? 'adiantada' : 'em_dia'; }
+  let atingidaEm=null;
+  if(atingida && s){ for(const d of Object.keys(s.saldoFim).sort()) if(d>=desde && d<=td && s.saldoFim[d]>=valor-0.004){ atingidaEm=d; break; } }
+  return {saldo, valor, pct, falta, excedente, atingida, atingidaEm, prazo, mesesRest, vencido, mensal, cenarios, contrib, retiradas, rendimento,
+    ritmo, previsao, contribMes, planejado, esperado, status, perto: !atingida && pct>=90, difRitmo: mensal!=null? r2(ritmo-mensal) : null};
+}
+// mês a mês (para o histórico do cartão): guardado, resgatado, rendimento e saldo no fim do mês
+function metaMeses(x, n=6, td=today()){
+  const s=cxHoje().by(x.id), cym=td.slice(0,7), out=[];
+  for(let i=n-1;i>=0;i--){ const ym=addM(cym,-i), ini=`${ym}-01`, fim=ym===cym? td : fimMes(ym);
+    if(s && fim<s.x.saldoRefData && !(x.movs||[]).some(v=>v.data.slice(0,7)===ym)) continue;
+    const mv=(x.movs||[]).filter(v=>v.data>=ini && v.data<=fim);
+    out.push({ym, guardou:r2(mv.filter(v=>v.valor>0).reduce((a,v)=>a+v.valor,0)), resgatou:r2(-mv.filter(v=>v.valor<0).reduce((a,v)=>a+v.valor,0)),
+      rendeu: s? cxRendPeriodo(s,ini,fim) : 0, saldo: s? cxSaldoEm(s,fim) : 0}); }
+  return out;
+}
+// nova sugestão para a reserva com meta "sugerida": só aparece se mudou o bastante e se a pessoa não pediu para não avisar
+// (ou já recusou esse mesmo valor). NUNCA muda a meta: a pessoa escolhe "Manter meta atual" ou "Atualizar meta".
+function sugestaoPendente(x, td=today()){
+  if(!isReserva(x) || x.meta.modo!=='sugerida' || x.meta.pausada || x.meta.concluida) return null;
+  if((state.config.caixinhas?.sugestao||'perguntar')==='nao') return null;
+  const s=sugestaoReserva(x.meta.mesesCobertura, null, td); if(!(s.valor>0)) return null;
+  const perto=(a,b)=>Math.abs(a-b) < Math.max(10, Math.max(a,b)*0.01);
+  const atual=+x.meta.valor||0; if(perto(s.valor,atual)) return null;
+  if(x.meta.sugestaoRecusada!=null && perto(+x.meta.sugestaoRecusada, s.valor)) return null;
+  const mb=+x.meta.mediaBase;
+  const motivo = mb>0 && Math.abs(mb-s.media)>=0.01 ? `A média dos seus gastos essenciais ${s.media>mb?'subiu':'caiu'} de ${brl(mb)} para ${brl(s.media)} por mês.` : `A média dos seus gastos essenciais agora é ${brl(s.media)} por mês.`;
+  return {...s, anterior:atual, motivo};
+}
+const metaHistAdd = (y, ev) => { (y.metaHist=y.metaHist||[]).push({em:today(), ...ev}); if(y.metaHist.length>200) y.metaHist=y.metaHist.slice(-200); };
+async function responderSugestao(id, aplicar){
+  const x=cxById(id), s=sugestaoPendente(x); if(!s) return false;
+  const ok=await cxGravar(c=>{ const y=c.itens.find(z=>z.id===id), m=y.meta, td=today();
+    if(aplicar){ metaHistAdd(y,{tipo:'sugestao_aplicada', de:m.valor, para:s.valor, motivo:s.motivo}); m.valor=s.valor; m.mediaBase=s.media; m.baseEm=td; m.baseSaldo=cxSaldoHoje(y,td); delete m.sugestaoRecusada; }
+    else { metaHistAdd(y,{tipo:'sugestao_mantida', de:m.valor, para:s.valor, motivo:s.motivo}); m.sugestaoRecusada=s.valor; }
+    m.ultimaSugestao=s.valor; m.sugestaoAtualizadaEm=td; m.categoriasEssenciaisUsadas=s.cats; m.atualizadaEm=td; });
+  if(ok) toast(aplicar? `Meta atualizada para ${brl(s.valor)}` : `Meta mantida em ${brl(s.anterior)}`);
+  return ok;
+}
+// pausar, retomar, concluir, reabrir, remover (só a meta: caixinha, saldo, movimentações e rendimentos ficam)
+async function metaAcao(id, acao){
+  const x=cxById(id); if(!metaAtiva(x) || !['pausar','retomar','concluir','reabrir','remover'].includes(acao)) return false;
+  if(acao==='remover' && !await confirmBox('Remover a meta?', `Só a meta de "${x.nome}" sai. A caixinha, o saldo, as movimentações e os rendimentos continuam como estão.`, 'Remover meta')) return false;
+  const ok=await cxGravar(c=>{ const y=c.itens.find(z=>z.id===id), m=y.meta, td=today();
+    m.atualizadaEm=td;
+    if(acao==='pausar'){ m.pausada=true; metaHistAdd(y,{tipo:'pausada'}); }
+    else if(acao==='retomar'){ m.pausada=false; metaHistAdd(y,{tipo:'retomada'}); }
+    else if(acao==='concluir'){ m.concluida=true; m.concluidaEm=td; metaHistAdd(y,{tipo:'concluida'}); }
+    else if(acao==='reabrir'){ m.concluida=false; delete m.concluidaEm; metaHistAdd(y,{tipo:'reaberta'}); }
+    else { metaHistAdd(y,{tipo:'removida', de:m.valor}); y.metaRemovida=m; delete y.meta; } });
+  if(ok){ closeOv('ovMeta'); toast({pausar:'Meta pausada', retomar:'Meta retomada', concluir:'Meta concluída', reabrir:'Meta reaberta', remover:'Meta removida (a caixinha continua)'}[acao]); }
+  return ok;
+}
+// valida os dados do formulário de meta (objeto puro: testável sem tela). Devolve a mensagem de erro ou null.
+function validarMeta(f, td=today()){
+  if(!f || !f.caixinhaId) return 'Escolha a caixinha';
+  if(f.reserva && f.modo==='sugerida'){ if(!(f.mesesCobertura>=1 && f.mesesCobertura<=60)) return 'Meses de cobertura: de 1 a 60';
+    if(!(f.valor>0)) return 'Ainda não há gastos essenciais para sugerir a meta. Revise as categorias ou use "Definir minha meta".'; }
+  else if(!(f.valor>0)) return 'Informe o valor da meta';
+  if(f.valor>1e9) return 'Valor da meta grande demais';
+  if(!f.semPrazo){ if(!f.prazoFinal) return 'Escolha a data final, a quantidade de meses ou "Sem prazo"'; if(f.prazoFinal<td) return 'A data final não pode ser no passado'; }
+  if(f.contribuicaoMensal!=null && !(f.contribuicaoMensal>=0)) return 'Valor por mês inválido';
+  return null;
+}
+// grava a meta (cria ou edita). Uma reserva só: se outra caixinha já for a reserva, pergunta antes de trocar
+async function gravarMeta(f){
+  const erro=validarMeta(f); if(erro){ toast(erro); return false; }
+  const x=cxById(f.caixinhaId); if(!x){ toast('Caixinha não encontrada'); return false; }
+  const outra = f.reserva ? cxItens().find(y=>y.id!==x.id && isReserva(y)) : null;
+  if(outra && !await confirmBox('Já existe uma reserva de emergência', `"${outra.nome}" é a sua reserva hoje. Trocar a reserva para "${x.nome}"?\n\n"${outra.nome}" continua com a meta dela, como meta comum. Nenhum dinheiro é movido.`, 'Trocar a reserva')) return false;
+  const td=today(), saldo=cxSaldoHoje(x,td);
+  const ok=await cxGravar(c=>{
+    if(f.reserva){ if(f.cats) c.essenciais=f.cats.slice(); if(f.sugModo) c.sugestao=f.sugModo; }
+    if(outra){ const o=c.itens.find(z=>z.id===outra.id); o.meta.tipo='comum'; o.meta.atualizadaEm=td; metaHistAdd(o,{tipo:'deixou_de_ser_reserva'}); }
+    const y=c.itens.find(z=>z.id===x.id), antes=metaAtiva(y)? y.meta : null;
+    const m={...(antes||{}), ativa:true, tipo:f.reserva?'reserva_emergencia':'comum', modo:f.reserva? f.modo : 'manual', valor:r2(f.valor),
+      prazoFinal:f.semPrazo? null : f.prazoFinal, semPrazo:!!f.semPrazo, contribuicaoMensal: f.contribuicaoMensal>0? r2(f.contribuicaoMensal) : null, atualizadaEm:td,
+      pausada:!!antes?.pausada, concluida:!!antes?.concluida};
+    if(f.nome) m.nome=f.nome; else delete m.nome;
+    if(f.reserva) m.mesesCobertura=f.mesesCobertura; else delete m.mesesCobertura;
+    if(!antes){ m.criadaEm=td; m.saldoInicial=saldo; }
+    if(!antes || antes.valor!==m.valor || antes.prazoFinal!==m.prazoFinal){ m.baseEm=td; m.baseSaldo=saldo; }   // trajetória recomeça de hoje
+    if(f.reserva && f.modo==='sugerida' && f.sug){ m.ultimaSugestao=r2(f.valor); m.sugestaoAtualizadaEm=td; m.mediaBase=f.sug.media; m.categoriasEssenciaisUsadas=f.sug.cats; delete m.sugestaoRecusada; }
+    if(antes && antes.tipo!==m.tipo && m.tipo==='reserva_emergencia') metaHistAdd(y,{tipo:'virou_reserva'});
+    metaHistAdd(y, antes? {tipo:'editada', de:antes.valor, para:m.valor} : {tipo:'criada', para:m.valor});
+    y.meta=m;
+  });
+  if(ok) toast(`Meta de "${x.nome}" salva: ${brl(f.valor)}`);
+  return ok;
+}
+
+/* ---- metas: telas (janela #ovMeta, bloco da meta no cartão da caixinha, explicações) ---- */
+const META_ST = {em_dia:['ok','No ritmo'], adiantada:['ok','Adiantada'], atrasada:['late','Atrasada'], vencida:['late','Prazo encerrado'], atingida:['ok','Meta atingida'],
+  concluida:['ok','Concluída'], concluida_abaixo:['late','Abaixo da meta'], pausada:['fut','Pausada'], sem_prazo:['fut','Sem prazo']};
+const pctBR = v => (Math.round(v*10)/10).toLocaleString('pt-BR',{minimumFractionDigits:1, maximumFractionDigits:1});
+function metaCardHTML(x, td=today()){
+  if(!metaAtiva(x)) return `<div class="cxMeta vazio"><span class="small">Nenhuma meta definida</span><button type="button" class="btn sm" onclick="abrirMeta('${x.id}')">Definir meta</button></div>`;
+  const m=x.meta, p=progressoMeta(x,td), [cls,lab]=META_ST[p.status]||['fut',''], res=isReserva(x), pc=Math.min(100,Math.max(0,p.pct));
+  const L=[];
+  if(p.status==='concluida_abaixo') L.push(`<b class="neg">Meta concluída, mas um resgate deixou o saldo abaixo dela.</b> Faltam <b class="num">${brl(p.falta)}</b>. <button type="button" class="linkish" onclick="metaAcao('${x.id}','reabrir')">Reabrir a meta</button>`);
+  else if(p.atingida) L.push(`<b class="pos">Meta atingida</b>${p.atingidaEm?`: você alcançou em ${dBRl(p.atingidaEm)}`:''}.${p.excedente>0.004?` Acima da meta: <b class="num">${brl(p.excedente)}</b>.`:''}`);
+  else if(p.vencido) L.push(`<b class="neg">Prazo encerrado</b> em ${dBRl(p.prazo)}. Faltam <b class="num">${brl(p.falta)}</b> para atingir a meta.`);
+  else {
+    L.push(`Faltam <b class="num">${brl(p.falta)}</b>`);
+    if(p.prazo) L.push(`Guardar <b class="num">${brl(p.mensal)}</b> por mês até ${ymLongo(p.prazo.slice(0,7))} (${p.mesesRest} ${p.mesesRest===1?'mês':'meses'}, contando este)`);
+    else L.push('Sem prazo: '+p.cenarios.map(c=>`em ${c.meses} meses, <b class="num">${brl(c.mensal)}</b>/mês`).join(' · '));
+  }
+  if(!p.atingida && !m.pausada && !m.concluida){
+    if(p.ritmo>0.004) L.push(`Ritmo atual: <b class="num">${brl(p.ritmo)}</b>/mês${p.difRitmo!=null&&!p.vencido? (p.difRitmo<-0.004? ` · você precisa guardar <b class="num">${brl(-p.difRitmo)}</b> a mais por mês` : ' · acima do necessário') : ''}${p.previsao?` · nesse ritmo, conclui em ${ymLongo(p.previsao)}`:''}`);
+    else L.push('Sem guardadas nos últimos meses: ainda não dá para prever quando conclui.');
+    if(p.planejado) L.push(`Neste mês: guardou <b class="num">${brl(Math.max(0,p.contribMes))}</b> de ${brl(p.planejado)} planejados${p.contribMes>=p.planejado-0.004?' (feito)':''}`);
+  }
+  if(m.pausada) L.push('Meta pausada: sem avisos de atraso até você retomar.');
+  L.push(`<span class="mtMini">Desde ${dBR(m.criadaEm||x.saldoRefData)}: guardou ${brl(p.contrib)} · resgatou ${brl(p.retiradas)} · rendeu ${brl(p.rendimento)}</span>`);
+  const sug=sugestaoPendente(x,td);
+  const sugH = sug? `<div class="cxSug" role="status"><b>${esc(sug.motivo)}</b> A sugestão para ${sug.mesesCobertura} meses passou de ${brl(sug.anterior)} para ${brl(sug.valor)}. Deseja atualizar a meta?
+      <div class="cxSugBt"><button type="button" class="btn sm" onclick="responderSugestao('${x.id}',false)">Manter meta atual</button><button type="button" class="btn sm primary" onclick="responderSugestao('${x.id}',true)">Atualizar meta</button></div></div>` : '';
+  const nomeA = metaNome(x);
+  return `<div class="cxMeta${res?' res':''}">
+    <div class="cxMetaTop"><span class="small upper">${res?'Reserva de emergência':'Meta'}${m.nome&&!res?': '+esc(m.nome):''}</span><span class="tag ${cls}">${lab}</span>${p.perto&&!m.pausada?'<span class="tag ok">Quase lá</span>':''}</div>
+    <div class="cxMetaVal"><b class="num">${brl(p.saldo)}</b> de <b class="num">${brl(p.valor)}</b> · ${pctBR(p.pct)}% concluído</div>
+    <div class="mtBar${p.atingida?' ok':''}" role="progressbar" aria-label="Progresso da meta ${esc(nomeA)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pc)}" aria-valuetext="${pctBR(p.pct)}% concluído: ${OCULTO?'valores ocultos':`${brl(p.saldo)} de ${brl(p.valor)}`}"><i style="width:${pc.toFixed(1)}%"></i></div>
+    ${L.map(l=>`<div class="small">${l}</div>`).join('')}
+    ${p.prazo&&!p.vencido?`<div class="small">Prazo: ${ymLongo(p.prazo.slice(0,7))}</div>`:''}
+    ${sugH}
+    <div class="cxMetaLinks">${res?`<button type="button" class="linkish" onclick="metaComoCalculou('${x.id}')">Como essa meta foi calculada?</button>`:''}<button type="button" class="linkish" onclick="metaHistorico('${x.id}')">Histórico da meta</button></div>
+  </div>`;
+}
+// janela "detalhe" (ovDet) com conteúdo livre
+function abrirInfo(titulo, html, acoes=''){ $('detTitle').innerHTML=titulo; $('detBody').innerHTML=html; $('detActions').innerHTML=acoes; openOv('ovDet'); }
+function metaComoCalculou(id){
+  const x=cxById(id); if(!isReserva(x)) return; const m=x.meta, s=sugestaoReserva(m.mesesCobertura||6);
+  const linha=(a,b)=>`<div class="mtCalcL"><span>${a}</span><b>${b}</b></div>`;
+  const cats=Object.entries(s.porCat).sort((a,b)=>b[1]-a[1]);
+  abrirInfo('Como a meta da reserva foi calculada',
+    `<p class="small" style="margin-top:-8px">Gasto essencial médio por mês × meses de cobertura. Conta o mês em que o dinheiro sai da conta (compra no cartão entra uma vez, no mês da fatura; estornos descontam).</p>
+     <div class="mtCalc">${linha('Período analisado', s.meses.length? s.meses.map(k=>ymLongo(k)).join(', ') : 'nenhum mês completo ainda')}
+       ${s.meses.length && !s.completo? `<div class="small">Ainda não há 3 meses completos com gastos: usei ${s.meses.length===1?'o mês que existe':'os '+s.meses.length+' meses que existem'}.</div>`:''}
+       ${linha('Gasto essencial médio', brl(s.media)+' por mês')}${linha('Meses de cobertura', s.mesesCobertura)}
+       <div class="mtCalcL tot"><span>Sugestão hoje</span><b class="num">${brl(s.valor)}</b></div>
+       ${linha('Meta atual', `${brl(m.valor)} (${m.modo==='sugerida'?'sugerida pelo app':'definida por você'})`)}
+       ${m.sugestaoAtualizadaEm? linha('Sugestão aplicada/revista em', dBRl(m.sugestaoAtualizadaEm)) : ''}${linha('Calculado em', dBRl(s.em))}</div>
+     ${m.modo!=='sugerida'?'<p class="small">Sua meta é manual: a sugestão acima é só referência e nunca muda a sua meta.</p>':''}
+     <h4>Por mês</h4><table><tbody>${s.meses.map(k=>`<tr><td>${ymLongo(k)}</td><td class="r num">${brl(s.porMes[k])}</td></tr>`).join('')||'<tr><td class="small">Sem meses completos.</td></tr>'}</tbody></table>
+     <h4>Categorias consideradas essenciais (${s.cats.length})</h4><table><tbody>${s.cats.map(c=>{ const v=s.porCat[c]||Object.entries(s.porCat).find(([k])=>normTxt(k)===normTxt(c))?.[1]||0; return `<tr><td>${esc(c)}</td><td class="r num">${brl(v)}</td></tr>`; }).join('')}</tbody></table>
+     <p class="small">Ficam fora: receitas, categorias não marcadas (ex.: lazer, compras, presentes, viagens), faturas importadas, saldo anterior do cartão, guardadas e resgates de caixinhas, depósitos de dinheiro físico, ajustes de saldo e rendimentos.${cats.length?'':' Nenhum gasto essencial no período.'}</p>`,
+    `<button class="btn" onclick="closeOv('ovDet');setTimeout(()=>abrirMeta('${x.id}'),280)">Editar meta e categorias</button>`);
+}
+const META_EV = {criada:'Meta criada', editada:'Meta editada', sugestao_aplicada:'Nova sugestão aplicada', sugestao_mantida:'Sugestão recusada (meta mantida)',
+  pausada:'Pausada', retomada:'Retomada', concluida:'Concluída', reaberta:'Reaberta', removida:'Meta removida', virou_reserva:'Virou a reserva de emergência', deixou_de_ser_reserva:'Deixou de ser a reserva'};
+function metaHistorico(id){
+  const x=cxById(id); if(!x) return; const ms=metaMeses(x,6), ev=[...(x.metaHist||[])].reverse();
+  abrirInfo(`Histórico da meta · ${esc(x.nome)}`,
+    `<p class="small" style="margin-top:-8px">Guardadas, resgates e rendimentos aparecem separados. "Atualizar saldo" não conta como guardada.</p>
+     <h4>Mês a mês</h4><table><thead><tr><th>Mês</th><th class="r">Guardou</th><th class="r">Resgatou</th><th class="r">Rendeu</th><th class="r">Saldo</th></tr></thead><tbody>
+     ${ms.map(r=>`<tr><td>${ymLabel(r.ym)}</td><td class="r num pos">${brl(r.guardou)}</td><td class="r num ${r.resgatou>0?'neg':''}">${brl(r.resgatou)}</td><td class="r num">${brl(r.rendeu)}</td><td class="r num"><b>${brl(r.saldo)}</b></td></tr>`).join('')}</tbody></table>
+     <h4>Alterações da meta</h4>${ev.length? `<table><tbody>${ev.map(e=>`<tr><td class="small" style="width:80px">${dBR(e.em)}</td><td class="small">${esc(META_EV[e.tipo]||e.tipo)}${e.de!=null||e.para!=null?`: ${e.de!=null?brl(e.de):''}${e.de!=null&&e.para!=null?' → ':''}${e.para!=null?brl(e.para):''}`:''}${e.motivo?`<div class="small">${esc(e.motivo)}</div>`:''}</td></tr>`).join('')}</tbody></table>` : '<div class="small">Nenhuma alteração registrada.</div>'}`,
+    metaAtiva(x)? `<button class="btn" onclick="closeOv('ovDet');setTimeout(()=>abrirMeta('${x.id}'),280)">Editar meta</button>` : '');
+}
+// "Criar reserva de emergência": se já existe, mostra e pergunta (não cria outra em silêncio)
+async function abrirReserva(){
+  const r=cxReserva();
+  if(r){ const p=progressoMeta(r);
+    const v=await confirmBox('Você já tem uma reserva de emergência', `"${r.nome}": ${brl(p.saldo)} de ${brl(p.valor)} (${pctBR(p.pct)}%).\n\nPara usar outra caixinha como reserva, abra "Editar meta", escolha a caixinha e confirme a troca.`, 'Editar meta', {label:'Ver a caixinha', value:'ver'});
+    if(v==='ver'){ location.hash='#caixinhas'; setTimeout(()=>document.getElementById('cx-'+r.id)?.scrollIntoView({behavior:MENOS_MOV()?'auto':'smooth', block:'center'}),80); }
+    else if(v) abrirMeta(r.id);
+    return; }
+  abrirMeta(null,{reserva:true});
+}
+let MT=null;   // estado da janela de meta
+function abrirMeta(id, o={}){
+  if(!state.config) return;
+  const x=id? cxById(id) : null, m=metaAtiva(x)? x.meta : null, reserva = m? m.tipo==='reserva_emergencia' : !!o.reserva;
+  if(!cxItens().length) return metaNovaCaixinha(reserva);   // sem caixinha: cria pelo fluxo normal e volta para cá
+  let cxId=x? x.id : null;
+  if(!cxId){ const livres=cxItens().filter(y=>!metaAtiva(y)); cxId=(livres.find(y=>/reserva|emerg/.test(normTxt(y.nome)))||livres[0]||cxItens()[0]).id; }
+  const cob=+(m?.mesesCobertura)||6;
+  MT={id:cxId, editando:!!m, modo: m? (m.modo||'manual') : (reserva?'sugerida':'manual'), prazo: m? (m.semPrazo||!m.prazoFinal? 'sem' : 'data') : 'meses', cobSel:[3,6,9,12].includes(cob)? String(cob) : 'outro'};
+  $('mtTitle').textContent = m? (reserva? 'Editar reserva de emergência' : 'Editar meta') : (reserva? 'Criar reserva de emergência' : 'Definir meta');
+  $('mtSub').textContent = (reserva? 'Dinheiro para imprevistos. O app sugere uma meta pelos seus gastos essenciais, ou você define a sua. ' : 'A meta acompanha o saldo real da caixinha. ') + 'Configurar a meta não move dinheiro.';
+  fillSelect($('mtCx'), cxItens().map(y=>[y.id, y.nome + (y.id!==cxId && isReserva(y)? ' (reserva atual)' : y.id!==cxId && metaAtiva(y)? ' (já tem meta)' : '')]), cxId);
+  $('mtCx').disabled=!!m; $('mtNovaCx').hidden=!!m;
+  $('mtReserva').checked=reserva; $('mtNome').value=m?.nome||'';
+  $('mtValor').value = m? fmtInput(m.valor) : ''; $('mtData').value=m?.prazoFinal||''; $('mtMeses').value=m? '' : '12';
+  $('mtContrib').value = m?.contribuicaoMensal? fmtInput(m.contribuicaoMensal) : '';
+  $('mtCob').value=cob; $('mtSugModo').value=state.config.caixinhas?.sugestao||'perguntar';
+  const sel=new Set(essenciais().map(normTxt));
+  $('mtCats').innerHTML=catsDeGasto().map(c=>`<label><input type="checkbox" value="${esc(c)}"${sel.has(normTxt(c))?' checked':''}> ${esc(c)}</label>`).join('') || '<div class="small">Nenhuma categoria de gasto.</div>';
+  $('mtCatsAviso').hidden = Array.isArray(state.config.caixinhas?.essenciais);
+  $('mtAcoes').innerHTML = m? [m.pausada? ['retomar','Retomar meta'] : ['pausar','Pausar meta'], m.concluida? ['reabrir','Reabrir meta'] : ['concluir','Marcar como concluída'], ['remover','Remover só a meta']]
+      .map(([a,l])=>`<button type="button" class="btn sm${a==='remover'?' ghost':''}" onclick="metaAcao('${x.id}','${a}')">${l}</button>`).join('')
+      + `<button type="button" class="btn sm ghost" onclick="closeOv('ovMeta');setTimeout(()=>metaHistorico('${x.id}'),280)">Histórico</button>` : '';
+  metaSync(); openOv('ovMeta');
+}
+// sem caixinha (ou "+ criar uma nova"): usa o fluxo normal de Nova caixinha e, depois de criar, volta para a meta
+function metaNovaCaixinha(reserva){
+  if(reserva===undefined) reserva=$('mtReserva').checked;
+  closeOv('ovMeta');
+  setTimeout(()=>{ openCx('nova', null, {depois:nid=>abrirMeta(nid,{reserva})}); if(reserva && !$('cxNome').value) $('cxNome').value='Reserva de emergência'; }, 60);
+}
+function metaLerForm(){
+  const reserva=$('mtReserva').checked, modo=reserva? MT.modo : 'manual';
+  const cats=reserva? [...document.querySelectorAll('#mtCats input:checked')].map(i=>i.value) : null;
+  const mesesCobertura=Math.round(+$('mtCob').value||0);
+  let sug=null, valor;
+  if(reserva && modo==='sugerida'){ sug=sugestaoReserva(mesesCobertura||6, cats); valor=sug.valor; } else valor=parseMoney($('mtValor').value);
+  const semPrazo=MT.prazo==='sem', nm=+$('mtMeses').value;
+  const prazoFinal = semPrazo? null : MT.prazo==='meses' ? (nm>=1? prazoDeMeses(nm) : null) : ($('mtData').value||null);
+  const cs=$('mtContrib').value.trim();
+  return {caixinhaId:$('mtCx').value||MT.id, reserva, modo, nome:$('mtNome').value.trim(), mesesCobertura, valor, sug, cats, sugModo:$('mtSugModo').value,
+    semPrazo, prazoFinal, contribuicaoMensal: cs? parseMoney(cs) : null};
+}
+function metaSync(){
+  if(!MT) return;
+  const f=metaLerForm(), r=f.reserva, sugerida=r && MT.modo==='sugerida';
+  document.querySelectorAll('#ovMeta .mtSeg').forEach(seg=>{ const k=seg.dataset.k, v=k==='modo'? MT.modo : k==='prazo'? MT.prazo : MT.cobSel;
+    seg.querySelectorAll('button').forEach(b=>{ const on=b.dataset.v===v; b.classList.toggle('on',on); b.setAttribute('aria-pressed',String(on)); }); });
+  $('mtModoF').hidden=!r; $('mtSugF').hidden=!sugerida; $('mtValorF').hidden=sugerida;
+  $('mtCobF').hidden=MT.cobSel!=='outro';
+  $('mtDataF').hidden=MT.prazo!=='data'; $('mtMesesF').hidden=MT.prazo!=='meses';
+  if(sugerida){ const s=f.sug, n=f.cats? f.cats.length : 0;
+    $('mtCatsN').textContent=`${n} marcada${n===1?'':'s'}`;
+    $('mtCalc').innerHTML = s.meses.length
+      ? `<div class="mtCalcL"><span>Período analisado</span><b>${s.meses.map(k=>ymLabel(k)).join(', ')}</b></div>${s.completo?'':`<div class="small">Ainda não há 3 meses completos com gastos: usei ${s.meses.length===1?'1 mês':s.meses.length+' meses'}.</div>`}
+         <div class="mtCalcL"><span>Gasto essencial médio</span><b class="num">${brl(s.media)} por mês</b></div>
+         <div class="mtCalcL"><span>Cobertura</span><b>${s.mesesCobertura} meses</b></div>
+         <div class="mtCalcL tot"><span>Meta sugerida</span><b class="num">${brl(s.valor)}</b></div>`
+      : '<div class="small">Ainda não há um mês completo com gastos lançados para calcular a média. Use "Definir minha meta" por enquanto.</div>'; }
+  // prévia: como o cartão vai ficar (sem gravar nada)
+  const x=cxById(f.caixinhaId), erro=validarMeta(f);
+  if(!x){ $('mtPrev').innerHTML=''; return; }
+  const ant=metaAtiva(x)? x.meta : {};
+  const fake={...x, meta:{...ant, ativa:true, tipo:r?'reserva_emergencia':'comum', valor:f.valor>0? f.valor : 0, prazoFinal:f.prazoFinal, semPrazo:f.semPrazo,
+    contribuicaoMensal:f.contribuicaoMensal, criadaEm:ant.criadaEm||today(), baseEm:today(), baseSaldo:cxSaldoHoje(x)}};
+  const p=progressoMeta(fake);
+  $('mtPrev').innerHTML = !(f.valor>0) ? `<span class="small">${esc(erro||'Informe o valor da meta')}</span>`
+    : `<div><b>Saldo de hoje da caixinha: ${brl(p.saldo)}</b> (o valor inicial da meta; nenhum lançamento é criado)</div>
+       <div>${p.atingida? `Já atingida. ${p.excedente>0.004?'Acima da meta: '+brl(p.excedente):''}` : `Faltam <b class="num">${brl(p.falta)}</b> · `
+         + (p.prazo? `guardar <b class="num">${brl(p.mensal)}</b> por mês até ${ymLongo(p.prazo.slice(0,7))} (${p.mesesRest} ${p.mesesRest===1?'mês':'meses'})` : p.cenarios.map(c=>`${c.meses} meses: ${brl(c.mensal)}/mês`).join(' · '))}</div>
+       ${p.planejado && p.mensal!=null && !p.atingida? `<div class="small">${p.planejado>=p.mensal-0.004? `Guardando ${brl(p.planejado)} por mês você chega no prazo.` : `Guardando ${brl(p.planejado)} por mês faltariam ${brl(r2(p.mensal-p.planejado))} por mês para chegar no prazo.`}</div>`:''}
+       ${erro?`<div class="small neg">${esc(erro)}</div>`:''}`;
+}
+$('ovMeta').addEventListener('click', e=>{ const b=e.target.closest && e.target.closest('.mtSeg button'); if(!b || !MT) return;
+  const k=b.parentElement.dataset.k, v=b.dataset.v;
+  if(k==='modo') MT.modo=v; else if(k==='prazo'){ MT.prazo=v; if(v==='data' && !$('mtData').value) $('mtData').value=prazoDeMeses(12); }
+  else if(k==='cob'){ MT.cobSel=v; if(v!=='outro') $('mtCob').value=v; else setTimeout(()=>$('mtCob').focus(),30); }
+  metaSync(); });
+$('metaForm').addEventListener('input', ()=>metaSync());
+$('metaForm').addEventListener('change', ()=>metaSync());
+$('metaForm').addEventListener('submit', async()=>{ if(!MT) return; if(await gravarMeta(metaLerForm())) closeOv('ovMeta'); });
 
 /* ---- faturas marcadas como pagas automaticamente (migração de 06/11/2026), para conferência ----
  * Nada muda sozinho. Por fatura, o usuário pode "Confirmar" (grava conferido:data, o saldo não muda) ou

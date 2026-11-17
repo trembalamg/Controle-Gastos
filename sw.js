@@ -1,7 +1,7 @@
 /* Service worker (só no GitHub Pages): guarda os arquivos do app para abrir sem internet.
  * Rede primeiro (pega sempre a versão nova); sem internet, usa a cópia. Chamadas ao GitHub e ao Banco Central
  * passam direto (nunca ficam guardadas aqui). Para publicar uma versão nova, troque VERSAO. */
-const VERSAO = 'cg-2026-11-17b';
+const VERSAO = 'cg-2026-11-17c';
 const ARQUIVOS = ['./', 'index.html', 'nuvem.js', 'regras.js', 'dinheiro.js', 'qrcode.js', 'relatorio.js', 'chart.umd.min.js',
   'manifest.webmanifest', 'icone.png', 'icone-180.png', 'icone-192.png', 'icone-512.png'];
 
