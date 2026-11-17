@@ -17,7 +17,7 @@
 <script src="dinheiro.js?v=ed7894e870"></script>
 <script src="qrcode.js?v=06e384f414"></script>
 <!-- modo nuvem (GitHub Pages + repositório privado, dados criptografados): só liga em *.github.io ou com ?nuvem=1 -->
-<script src="nuvem.js?v=64808a397a"></script>
+<script src="nuvem.js?v=535683642a"></script>
 <link rel="manifest" href="manifest.webmanifest">
 <script>
 (function(){ var t=null; try{ t=localStorage.getItem('cg_theme'); }catch(e){}
@@ -3028,11 +3028,19 @@ function diaUtilCDI(d,ci){
   return !(HAS_REGRAS && Regras.holidaysFor(+d.slice(0,4)).has(d));
 }
 const taxaCDI = (d,ci) => ci.map[d] ?? ci.ultima;
-// fator aplicado sobre o cálculo bruto: automático = soma dos reais / soma dos calculados (IR, arredondamento do banco…)
+// Fator aplicado sobre o cálculo bruto (o banco credita o rendimento LÍQUIDO: nos valores reais de nov/2026 o crédito
+// ficou sempre entre 78% e 80% do bruto, o que bate com 22,5% de IR).
+// Automático = soma dos reais / soma dos calculados, juntando a conta E todas as caixinhas (mesmo banco, mesmo IR).
+// Sem nenhum valor real informado (conta nova, ou depois de apagar os reais): IR de 22,5% (fator 0,775), nunca o bruto.
+const FATOR_IR_PADRAO = 0.775;
+function fatorReais(){
+  const l=[...Object.values(rendCfg().reais||{}), ...cxItens().flatMap(x=>Object.values(x.reais||{}))].filter(x=>x && x.bruto>0.004);
+  if(!l.length) return FATOR_IR_PADRAO;
+  const sr=l.reduce((s,x)=>s+x.v,0), sb=l.reduce((s,x)=>s+x.bruto,0); return sb>0? sr/sb : FATOR_IR_PADRAO;
+}
 function rendFator(){
   const r=rendCfg(); if(!r.auto) return +r.fator||1;
-  const l=Object.values(r.reais||{}).filter(x=>x.bruto>0.004); if(!l.length) return 1;
-  const sr=l.reduce((s,x)=>s+x.v,0), sb=l.reduce((s,x)=>s+x.bruto,0); return sb>0? sr/sb : 1;
+  return fatorReais();
 }
 function rendNovo(){
   const ref=state.config.saldoRefData, net={};
@@ -3044,9 +3052,12 @@ function rendNovo(){
 function rendAvanca(S,upTo){
   for(let d = S.d? addD(S.d) : S.ref; d<=upTo; d=addD(d)){
     if(S.pend){ S.bal+=S.pend; S.acc+=S.pend; S.cred[d]=S.pend; S.pend=0; }   // rendimento de ontem entra hoje
+    const inicio=S.bal;
     S.bal+=S.net[d]||0; S.cum[d]=S.acc; S.saldoFim[d]=S.bal; S.d=d;
     if(diaUtilCDI(d,S.ci)){
-      const bruto=Math.max(0,S.bal)*taxaCDI(d,S.ci)/100*S.pct; S.bruto[d]=bruto;
+      // dinheiro que ENTRA na conta num dia só rende a partir do dia útil seguinte (ex.: salário): rende o menor entre
+      // o saldo do início e o do fim do dia. Saída no dia já não rende. (Conferido com os saldos reais de nov/2026.)
+      const bruto=Math.max(0,Math.min(inicio,S.bal))*taxaCDI(d,S.ci)/100*S.pct; S.bruto[d]=bruto;
       S.pend = S.reais[d]? S.reais[d].v : r2(bruto*S.fator);
     }
   }
@@ -3117,7 +3128,7 @@ function renderRend(){
   const reais=Object.entries(r.reais||{}).sort((a,b)=>b[0].localeCompare(a[0]));
   box.innerHTML = `<div class="small">CDI ${ci.max?`de ${dBR(ci.max)}`:'(padrão)'}: <b class="num">${ci.ultima.toFixed(6).replace('.',',')}% ao dia</b> ≈ ${anual(ci.ultima).toFixed(2).replace('.',',')}% ao ano · fonte: Banco Central ${r.cdiEm?`(buscado ${dBR(r.cdiEm)})`:''}
       <button class="linkish" onclick="baixarCDI()">atualizar</button></div>
-    <div class="small mt">${pct}% do CDI = ${(ci.ultima*pct/100).toFixed(6).replace('.',',')}% ao dia. ${f!==1?`Ajuste pelos valores reais: <b>${(f*100).toFixed(1).replace('.',',')}%</b> do cálculo (≈ <b>${efet.toFixed(1).replace('.',',')}% do CDI</b> líquido). Costuma ser o IR descontado pelo banco.`:'Sem ajuste (ainda não há valor real informado).'}</div>
+    <div class="small mt">${pct}% do CDI = ${(ci.ultima*pct/100).toFixed(6).replace('.',',')}% ao dia. ${f!==1?`Ajuste pelos valores reais: <b>${(f*100).toFixed(1).replace('.',',')}%</b> do cálculo (≈ <b>${efet.toFixed(1).replace('.',',')}% do CDI</b> líquido). Costuma ser o IR descontado pelo banco.${reais.length?'':' Sem valor real informado ainda: desconta 22,5% de IR (o mais comum). Lançar o rendimento real deixa o cálculo mais preciso.'}`:'Sem ajuste (cálculo bruto, desligado em "calibrar").'}</div>
     ${rendOn()?`<div class="small mt">Rendimento ${ontem===addD(hoje,-1)?'de ontem':`de ${dBR(ontem)}`} previsto pelo app: <b class="num">${prevOntem!=null?brl(prevOntem):'—'}</b> · já entrou neste mês: <b class="num">${brl(rendJaMes())}</b> · previsão do mês todo: <b class="num">${brl(rendMes(curYM()))}</b></div>`:''}
     ${reais.length?`<table class="mt"><thead><tr><th>Dia</th><th class="r">Saldo</th><th class="r">App (bruto)</th><th class="r">Real</th><th class="r">% do CDI</th><th></th></tr></thead><tbody>${reais.slice(0,10).map(([d,x])=>{
       const pc = x.base>0 && ci.map[d]!=null ? x.v/(x.base*ci.map[d]/100)*100 : x.bruto>0? x.v/x.bruto*pct : null;
@@ -4142,8 +4153,7 @@ const cxById = id => cxItens().find(x=>x.id===id);
 function cxContaMovs(){ const out=[]; for(const x of cxItens()) for(const m of x.movs||[]) if(m.conta) out.push({saida:m.data, v:-m.valor, tipo:'cx'}); return out; }
 function cxFator(){
   if(cxCfg().auto===false) return 1;
-  const l=cxItens().flatMap(x=>Object.values(x.reais||{})).filter(r=>r.bruto>0.004); if(!l.length) return 1;
-  const sr=l.reduce((s,r)=>s+r.v,0), sb=l.reduce((s,r)=>s+r.bruto,0); return sb>0? sr/sb : 1;
+  return fatorReais();   // mesmo ajuste da conta (reais da conta + das caixinhas; sem nenhum: 22,5% de IR)
 }
 // simula todas as caixinhas juntas, dia a dia, do saldo base mais antigo até upTo. ov = {id, reais}: troca os reais de uma
 function cxSim(upTo, ov){
@@ -4213,7 +4223,7 @@ function renderCaixinhas(){
   const ci=cdiInfo(), efHoje=[...Object.keys(H.ef)].filter(d=>d<=td).sort().pop();
   $('cxInfo').innerHTML = `<div class="small">CDI ${ci.max?`de ${dBR(ci.max)}`:'(padrão)'}: <b class="num">${ci.ultima.toFixed(6).replace('.',',')}% ao dia</b> (mesma taxa da conta, atualizada em Ajustes).
       ${efHoje?` Taxa da regra geral no último dia útil: <b>${(H.ef[efHoje]*100).toFixed(1).replace('.',',')}% do CDI</b> sobre ${brl(totGeral)}${nProp?' (as caixinhas com taxa própria rendem a taxa delas)':''}.`:''}</div>
-    <div class="small mt">${f!==1?`Ajuste pelos valores reais: <b>${(f*100).toFixed(1).replace('.',',')}%</b> do cálculo (≈ ${(c.pct*f).toFixed(1).replace('.',',')}% do CDI líquido). Costuma ser o IR que o banco desconta.`:'Sem ajuste (nenhum rendimento real informado ainda): o cálculo é bruto, sem IR.'}</div>
+    <div class="small mt">${f!==1?`Ajuste pelos valores reais: <b>${(f*100).toFixed(1).replace('.',',')}%</b> do cálculo (≈ ${(c.pct*f).toFixed(1).replace('.',',')}% do CDI líquido). Costuma ser o IR que o banco desconta. O ajuste é o mesmo da conta (junta os rendimentos reais da conta e das caixinhas; sem nenhum, 22,5% de IR).`:'Sem ajuste: o cálculo é bruto, sem IR.'}</div>
     ${acima?`<div class="small mt" style="color:var(--bad)">A soma passou do limite: o que passa de ${brl(lim)} está rendendo ${c.pctAcima}% do CDI. Confira esse percentual no app do Mercado Pago.</div>`:''}`;
 }
 // etiqueta da taxa própria no cartão da caixinha: "130% do CDI até 11/02/27 · faltam 91 dias" / "encerrada"

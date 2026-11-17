@@ -454,9 +454,10 @@
     try { return JSON.parse(dec.decode(await decifrar(k, conta.caixa))); }
     catch (_) { throw mLogin(); }
   }
-  async function lerConta(usuario) {
+  // base = endereço do app publicado (no computador: https://usuario.github.io/Repositorio/); no próprio site, vazio
+  async function lerConta(usuario, base = '') {
     try {
-      const r = await raiz.fetch(`contas/${await idConta(usuario)}.json`, { cache: 'no-store' });
+      const r = await raiz.fetch(`${base}contas/${await idConta(usuario)}.json`, { cache: 'no-store' });
       if (!r.ok) return null;
       const c = await r.json();
       return c && (c.caixa || c.cx) ? c : null;
@@ -465,8 +466,8 @@
   async function abrirTk(conta, privB64) { return JSON.parse(dec.decode(await decifrar(await chaveComum(await importarPriv(privB64), conta.epk), conta.tk))); }
 
   // usuário + senha -> acesso aos dados. Usuário que não existe demora o mesmo e dá a mesma mensagem.
-  async function entrar(usuario, senha) {
-    const u = normU(usuario), conta = await lerConta(u);
+  async function entrar(usuario, senha, base = '') {
+    const u = normU(usuario), conta = await lerConta(u, base);
     if (!conta) { await pbkdf2(senha, rand(16), ITER_CONTA); throw mLogin(); }
     let p, dekRaw, seg = null;
     if (conta.v === 2) {
@@ -778,8 +779,44 @@
 
   /* ------------------------------------------------------------------ no computador (servidor): enviar / trazer */
   // envia os dados do computador para a nuvem. o: {config, tx, galeria: async () => [{id, emissor, variante, tipo, banco, img}]}
+  // No computador: entra com o MESMO usuário e senha do link (a conta guarda, trancada, o acesso aos dados).
+  // O endereço do app fica lembrado neste computador. "Usar chave do GitHub" continua como alternativa.
+  const normSite = s => { s = String(s || '').trim(); if (!s) return ''; if (!/^https:\/\//i.test(s)) s = 'https://' + s; return s.replace(/[#?].*$/, '').replace(/\/?$/, '/'); };
+  function telaContaComputador(titulo, botao) {
+    return new Promise(res => {
+      let site = '', usuario = ''; try { site = raiz.localStorage.getItem('cg_nv_site') || ''; usuario = raiz.localStorage.getItem('cg_nv_usuario') || ''; } catch (_) {}
+      tela(`<h2>${escH(titulo)}</h2><p class="travaSub">Entre com o mesmo usuário e senha que você usa no link do app.</p>
+        <form class="travaRec nvForm" autocomplete="on">
+          <label>Link do app<input name="site" autocapitalize="off" spellcheck="false" placeholder="https://seu-usuario.github.io/Controle-Gastos/" value="${escH(site)}"></label>
+          <label>Usuário<input name="usuario" autocomplete="username" autocapitalize="off" spellcheck="false" value="${escH(usuario)}"></label>
+          <label>Senha<input name="senha" type="password" autocomplete="current-password" maxlength="200"></label>
+          <div class="travaErro" role="alert"></div>
+          <button type="submit" class="btn primary">${escH(botao)}</button>
+        </form>
+        <div class="travaRodape nvLinks"><button type="button" class="linkish" data-acao="cancelar">Cancelar</button><button type="button" class="linkish" data-acao="chave">Usar chave do GitHub</button></div>`);
+      q('[data-acao="cancelar"]').onclick = () => { fecharTela(); res(null); };
+      q('[data-acao="chave"]').onclick = () => res('chave');
+      const f = q('form'); setTimeout(() => { try { (!site ? f.site : !usuario ? f.usuario : f.senha).focus(); } catch (_) {} }, 60);
+      f.onsubmit = async e => {
+        e.preventDefault();
+        const s = normSite(f.site.value), u = f.usuario.value.trim(), p = f.senha.value;
+        if (!s || !u || !p) return msgErro('Preencha o link do app, o usuário e a senha.');
+        const bt = f.querySelector('button[type=submit]'); bt.disabled = true; bt.textContent = 'Entrando…';
+        try {
+          const c = await entrar(u, p, s);
+          try { raiz.localStorage.setItem('cg_nv_site', s); raiz.localStorage.setItem('cg_nv_usuario', u); } catch (_) {}
+          res(c);
+        } catch (err) { bt.disabled = false; bt.textContent = botao; f.senha.value = ''; msgErro(err.msg || err.message || 'Não consegui entrar.', true); }
+      };
+    });
+  }
+  async function conectarComputador(titulo, botao) {
+    let c = await telaContaComputador(titulo, botao);
+    if (c === 'chave') c = await telaSenha({ titulo, botao, cancelar: true });
+    return c;
+  }
   async function enviar(o) {
-    const c = await telaSenha({ titulo: 'Enviar para a nuvem', botao: 'Enviar', cancelar: true });
+    const c = await conectarComputador('Enviar para a nuvem', 'Enviar');
     if (!c) return null;
     tela('<h2>Enviando…</h2><p class="travaSub" id="nvProg">Preparando</p>');
     const prog = t => { const e = raiz.document.getElementById('nvProg'); if (e) e.textContent = t; };
@@ -811,7 +848,7 @@
   }
   // baixa tudo da nuvem (para o computador guardar uma cópia). Devolve {config, tx} ou null (cancelado).
   async function trazer() {
-    const c = await telaSenha({ titulo: 'Trazer da nuvem', botao: 'Baixar', cancelar: true });
+    const c = await conectarComputador('Trazer da nuvem', 'Baixar');
     if (!c) return null;
     tela('<h2>Baixando…</h2><p class="travaSub">Lendo os dados no GitHub</p>');
     try { await usar(c); S.semCache = true; await sincronizar(); return dados(); }
