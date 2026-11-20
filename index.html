@@ -3118,11 +3118,16 @@ function cdiInfo(){
   const map=rendCfg().cdi||{}, ks=Object.keys(map).sort();
   return {map, min:ks[0]||null, max:ks[ks.length-1]||null, ultima: ks.length? map[ks[ks.length-1]] : CDI_PADRAO};
 }
+// dia útil para o rendimento: dentro da série do BC, só os dias que têm taxa; fora dela (hoje e o futuro), o CALENDÁRIO BANCÁRIO
+// (sábado, domingo, feriados nacionais e os informados em Ajustes). Antes usava a lista de feriados do salário (vazia) e
+// contava feriado como dia útil (ex.: 20/11/2026, Consciência Negra).
 function diaUtilCDI(d,ci){
   if(ci.min && d>=ci.min && d<=ci.max) return d in ci.map;
-  const wd=new Date(d+'T00:00').getDay(); if(wd===0||wd===6) return false;
-  return !(HAS_REGRAS && Regras.holidaysFor(+d.slice(0,4)).has(d));
+  if(HAS_REGRAS && Regras.isBankBusinessDay) return Regras.isBankBusinessDay(d, calCfg());
+  const wd=new Date(d+'T00:00').getDay(); return wd!==0 && wd!==6;
 }
+// último dia útil antes de d (para o rendimento que ainda vai entrar quando o saldo base é informado num fim de semana/feriado)
+function diaUtilAntes(d,ci){ let x=addD(d,-1); for(let i=0;i<15 && !diaUtilCDI(x,ci);i++) x=addD(x,-1); return x; }
 const taxaCDI = (d,ci) => ci.map[d] ?? ci.ultima;
 // Fator aplicado sobre o cálculo bruto (o banco credita o rendimento LÍQUIDO: nos valores reais de nov/2026 o crédito
 // ficou sempre entre 78% e 80% do bruto, o que bate com 22,5% de IR).
@@ -3142,15 +3147,22 @@ function rendNovo(){
   const ref=state.config.saldoRefData, net={};
   for(const t of E) if(t.saida>=ref && naConta(t)) net[t.saida]=(net[t.saida]||0)+signed(t);
   for(const m of CXM) if(m.saida>=ref) net[m.saida]=(net[m.saida]||0)+m.v;
-  return {ref, ci:cdiInfo(), pct:(+rendCfg().pct||100)/100, fator:rendFator(), reais:rendCfg().reais||{},
+  const S={ref, ci:cdiInfo(), pct:(+rendCfg().pct||100)/100, fator:rendFator(), reais:rendCfg().reais||{},
     net, d:null, bal:+state.config.saldoRef||0, pend:0, acc:0, cum:{}, cred:{}, bruto:{}, saldoFim:{}};
+  // saldo base informado num dia sem crédito (fim de semana/feriado): o rendimento do último dia útil ainda não entrou
+  // nele; entra no próximo dia útil (estimado sobre o próprio saldo base)
+  if(ref && !diaUtilCDI(ref,S.ci)){ const b=diaUtilAntes(ref,S.ci); S.pend = S.reais[b]? S.reais[b].v : r2(Math.max(0,S.bal)*taxaCDI(b,S.ci)/100*S.pct*S.fator); }
+  return S;
 }
 function rendAvanca(S,upTo){
   for(let d = S.d? addD(S.d) : S.ref; d<=upTo; d=addD(d)){
-    if(S.pend){ S.bal+=S.pend; S.acc+=S.pend; S.cred[d]=S.pend; S.pend=0; }   // rendimento de ontem entra hoje
+    // o rendimento de um dia útil entra no PRÓXIMO dia útil (o banco não credita no fim de semana nem no feriado;
+    // conferido com saldos reais em 20/11/2026: o rendimento de 19/11 não entrou no feriado)
+    const util=diaUtilCDI(d,S.ci);
+    if(S.pend && util){ S.bal+=S.pend; S.acc+=S.pend; S.cred[d]=S.pend; S.pend=0; }
     const inicio=S.bal;
     S.bal+=S.net[d]||0; S.cum[d]=S.acc; S.saldoFim[d]=S.bal; S.d=d;
-    if(diaUtilCDI(d,S.ci)){
+    if(util){
       // dinheiro que ENTRA na conta num dia só rende a partir do dia útil seguinte (ex.: salário): rende o menor entre
       // o saldo do início e o do fim do dia. Saída no dia já não rende. (Conferido com os saldos reais de nov/2026.)
       const bruto=Math.max(0,Math.min(inicio,S.bal))*taxaCDI(d,S.ci)/100*S.pct; S.bruto[d]=bruto;
@@ -4460,11 +4472,15 @@ function cxSim(upTo, ov){
     return {x, net, reais: ov&&ov.id===x.id? ov.reais : (x.reais||{}), bal:0, on:false, pend:0, acc:0, saldoFim:{}, cum:{}, cred:{}, bruto:{}}; });
   const ef={}, ini=it.map(x=>x.saldoRefData).filter(Boolean).sort()[0];
   if(ini) for(let d=ini; d<=upTo; d=addD(d)){
+    const util=diaUtilCDI(d,ci);
     for(const s of S){ if(d<s.x.saldoRefData) continue;
-      if(d===s.x.saldoRefData){ s.bal=+s.x.saldoRef||0; s.on=true; }
-      if(s.pend){ s.bal+=s.pend; s.acc+=s.pend; s.cred[d]=s.pend; s.pend=0; }   // rendimento do dia útil anterior entra hoje
+      if(d===s.x.saldoRefData){ s.bal=+s.x.saldoRef||0; s.on=true;
+        // saldo base num fim de semana/feriado: o rendimento do último dia útil ainda vai entrar (estimado sobre o saldo base)
+        if(!util){ const b=diaUtilAntes(d,ci), tp=cxTaxaPropria(s.x,b); s.pend = s.reais[b]? s.reais[b].v : r2(Math.max(0,s.bal)*taxaCDI(b,ci)/100*(tp!=null? tp/100 : pct)*f); } }
+      // o rendimento do dia útil anterior entra no PRÓXIMO dia útil (fim de semana e feriado não creditam)
+      if(s.pend && util){ s.bal+=s.pend; s.acc+=s.pend; s.cred[d]=s.pend; s.pend=0; }
       s.bal+=s.net[d]||0; s.saldoFim[d]=r2(s.bal); s.cum[d]=r2(s.acc); }
-    if(diaUtilCDI(d,ci)){
+    if(util){
       // caixinhas com taxa própria no dia ficam fora da regra geral (e da soma do limite)
       const on=S.filter(s=>s.on), geral=on.filter(s=>cxTaxaPropria(s.x,d)==null), tot=geral.reduce((a,s)=>a+Math.max(0,s.bal),0);
       const e = (!lim || tot<=lim) ? pct : (lim*pct+(tot-lim)*pa)/tot; ef[d]=e;
